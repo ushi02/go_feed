@@ -71,6 +71,10 @@ func Canonical(raw string) (string, error) {
 	return u.String(), nil
 }
 
+// IPAllowed decides which resolved addresses the client may dial.
+// Tests replace it so they can reach httptest servers on 127.0.0.1.
+var IPAllowed = allowedIP
+
 func allowedIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
@@ -100,7 +104,7 @@ func client() *http.Client {
 				return nil, err
 			}
 			for _, ip := range ips {
-				if !allowedIP(ip) {
+				if !IPAllowed(ip) {
 					return nil, errors.New("feed resolves to a blocked address")
 				}
 			}

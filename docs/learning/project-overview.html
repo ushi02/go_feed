@@ -102,7 +102,7 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
     <nav class="toc">
       <a href="#analogy">餐厅比喻</a><a href="#runtime">运行结构</a><a href="#folders">代码目录</a>
       <a href="#layers">四层文件</a><a href="#data">数据表</a><a href="#flow">一次点击的旅程</a>
-      <a href="#auth">Session 与 JWT</a><a href="#disk">硬盘</a><a href="#storage">存储模型</a><a href="#deploy">本地与生产</a>
+      <a href="#auth">Session 与 JWT</a><a href="#disk">硬盘</a><a href="#storage">存储模型</a><a href="#deploy">本地与生产</a><a href="#tests">测试安全网</a>
     </nav>
     <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，仓库里的代码还是旧结构：Go 代码放在根目录，大部分逻辑在 <code>internal/reader/</code>，使用水位线模型。</div>
   </header>
@@ -326,6 +326,22 @@ user_entries（个人状态，只有订阅者才有）
       <tr><td><code>.env</code> 文件</td><td>存放密码和密钥的文件，程序启动时读取。不放进代码仓库，防止泄露</td></tr>
       <tr><td>mysqldump</td><td>MySQL 自带的工具，把整个数据库导出成一个 SQL 文件，可以用来恢复数据</td></tr>
     </table></div>
+  </section>
+
+  <section class="card" id="tests">
+    <h2><span class="num">11</span>测试安全网（M0）</h2>
+    <p>重构之前先写测试，好比<strong>搬家前先给每样东西拍照</strong>。搬完以后对照照片，就知道有没有东西摔坏或丢了。</p>
+    <div class="table-scroll"><table>
+      <tr><th>测试</th><th>测什么</th><th>依赖</th></tr>
+      <tr><td><span class="tag green">集成测试</span> <code>internal/reader/integration_test.go</code></td><td>走一遍完整流程：注册 → 订阅 → Worker 抓取 → 列出未读 → 标为已读。只通过 HTTP 接口操作，不调用内部函数</td><td>真实的 MySQL（testcontainers 临时启动一个 Docker 容器）和假 RSS 服务器（<code>httptest</code>）</td></tr>
+      <tr><td><span class="tag blue">单元测试</span> <code>internal/feedfetch/fetch_test.go</code></td><td><code>Canonical</code>（URL 规范化）、<code>allowedIP</code>（哪些 IP 禁止访问），以及抓取时的 304、2 MiB 大小上限、重定向到内网地址</td><td>不需要数据库，不到 1 秒就能跑完</td></tr>
+    </table></div>
+    <h3>为什么集成测试只通过 HTTP 接口操作？</h3>
+    <p>M1 会把 <code>internal/reader/</code> 拆成好几个包，内部函数的名字和位置都会变。如果测试直接调用内部函数，重构时测试也得跟着改，就起不到安全网的作用了。HTTP 接口在重构前后保持不变，所以测试基本不用改。</p>
+    <h3>为什么要让 IP 检查「可注入」？</h3>
+    <p>SSRF 防护会拒绝访问 <code>127.0.0.1</code>，而 <code>httptest</code> 服务器恰好运行在本机，测试会被自己的防护挡住。所以把检查函数做成了一个变量 <code>feedfetch.IPAllowed</code>，测试时替换成「放行本机」的版本，测完再换回原来的函数。生产代码的行为完全不变。</p>
+    <div class="tip">检验测试是否有效的方法：<strong>故意把代码改坏，看测试会不会失败。</strong>这次把「标为已读」改成什么都不做，集成测试马上报错 <code>unread entries after mark-read = 3, want 0</code>。这种做法叫 mutation testing（变异测试）。</div>
+    <div class="note"><code>go test -short ./...</code> 会跳过集成测试，没有 Docker 时可以这样跑；CI（<code>.github/workflows/ci.yml</code>）每次 push 都会完整执行 <code>go vet</code> 和 <code>go test -race</code>。</div>
   </section>
 
   <footer>go_feed 学习笔记 · 2026-10-27 · 设计确定后会继续更新</footer>
