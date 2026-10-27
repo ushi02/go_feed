@@ -1,4 +1,4 @@
-package feedfetch
+package fetcher
 
 import (
 	"bytes"

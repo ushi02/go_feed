@@ -7,11 +7,15 @@ on:
 jobs:
   go:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
       - run: go vet ./...
       # Integration tests start MySQL with testcontainers; GitHub's Ubuntu runners have Docker.
       - run: go test -race ./...

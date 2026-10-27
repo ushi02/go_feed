@@ -21,3 +21,17 @@
 
 **Q：怎么知道测试本身是有效的？**
 故意把代码改坏（比如让 mark-read 什么都不做），确认测试会失败，然后再恢复代码。
+
+## M1-1 按模块拆包
+
+**Q：怎么保证「只搬目录」真的没改行为？**
+M0 的集成测试只通过 HTTP 接口操作，所以拆包前后可以一字不改地运行（只改了 import 路径）。拆完之后，`go test -race`、`docker compose up --build` 和旧的 `scripts/smoke.py` 全部通过。
+
+**Q：Go 的包之间不能循环引用，你是怎么拆的？**
+先确定依赖方向：`http`（路由）→ 各业务模块 → `httpx`（共用小工具），`worker` → `subscription`、`entry`、`fetcher`，`entry` → `subscription`。原来 `subscription` 计算 baseline 时引用了 `Entry` 类型，会形成 `entry ↔ subscription` 循环，于是改成直接写表名 `Table("entries")`，生成的 SQL 完全一样。`Fail`、`UserID` 这类每个 handler 都要用的函数，放进一个不依赖任何业务包的「叶子包」`httpx`。
+
+**Q：为什么 `go.mod` 放进 `backend/`，模块路径变成 `.../go_feed/backend`？**
+前端和后端在同一个仓库里（monorepo），Go 代码只在 `backend/` 下。Go 规定模块路径要和所在目录对应，所以改成 `github.com/ushi02/go_feed/backend`。CI 和 Docker 构建都以 `backend/` 为工作目录。
+
+**Q：为什么这一步不顺便拆 service 和 repo？**
+一次只做一件事。如果搬目录和改分层混在一起，测试一旦失败，就很难判断是哪一步出的问题。先搬目录，测试通过后单独提交，再做下一步。

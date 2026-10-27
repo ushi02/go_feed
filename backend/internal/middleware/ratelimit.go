@@ -1,4 +1,4 @@
-package reader
+package middleware
 
 import (
 	"net/http"
@@ -13,16 +13,16 @@ type counter struct {
 	expires time.Time
 }
 
-type limiter struct {
+type Limiter struct {
 	mu    sync.Mutex
 	local map[string]counter
 }
 
-func newLimiter() *limiter {
-	return &limiter{local: map[string]counter{}}
+func NewLimiter() *Limiter {
+	return &Limiter{local: map[string]counter{}}
 }
 
-func (l *limiter) allow(key string, max int64, period time.Duration) bool {
+func (l *Limiter) allow(key string, max int64, period time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -42,7 +42,7 @@ func (l *limiter) allow(key string, max int64, period time.Duration) bool {
 	return int64(v.n) <= max
 }
 
-func (l *limiter) middleware(name string, max int64, period time.Duration) gin.HandlerFunc {
+func (l *Limiter) Middleware(name string, max int64, period time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !l.allow("auth:"+name+":"+c.ClientIP(), max, period) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts; try again later"})

@@ -1,4 +1,4 @@
-package reader
+package subscription
 
 import (
 	"encoding/xml"
@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ushi02/go_feed/internal/feedfetch"
+	"github.com/ushi02/go_feed/backend/internal/fetcher"
+	"github.com/ushi02/go_feed/backend/internal/httpx"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -55,35 +56,35 @@ func flatten(outlines []outline, path string, result *[]importFeed) {
 	}
 }
 
-func (a *API) importOPML(c *gin.Context) {
+func (a *Handler) ImportOPML(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
 	f, _, err := c.Request.FormFile("file")
 	if err != nil {
-		fail(c, 400, "OPML file is required (max 2 MiB)")
+		httpx.Fail(c, 400, "OPML file is required (max 2 MiB)")
 		return
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
-		fail(c, 400, "OPML exceeds 1 MiB")
+		httpx.Fail(c, 400, "OPML exceeds 1 MiB")
 		return
 	}
 	var doc opml
 	if xml.Unmarshal(data, &doc) != nil || doc.XMLName.Local != "opml" {
-		fail(c, 400, "invalid OPML")
+		httpx.Fail(c, 400, "invalid OPML")
 		return
 	}
 	var items []importFeed
 	flatten(doc.Body.Outlines, "", &items)
 	if len(items) > 500 {
-		fail(c, 400, "OPML contains more than 500 feeds")
+		httpx.Fail(c, 400, "OPML contains more than 500 feeds")
 		return
 	}
 	added, skipped := 0, 0
 	err = a.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		folderIDs := map[string]*uint64{}
 		for _, item := range items {
-			canonical, err := feedfetch.Canonical(item.URL)
+			canonical, err := fetcher.Canonical(item.URL)
 			if err != nil {
 				skipped++
 				continue
@@ -93,27 +94,27 @@ func (a *API) importOPML(c *gin.Context) {
 				if id, ok := folderIDs[item.Folder]; ok {
 					folderID = id
 				} else {
-					folder := Folder{UserID: uid(c), Name: item.Folder}
+					folder := Folder{UserID: httpx.UserID(c), Name: item.Folder}
 					if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&folder).Error; err != nil {
 						return err
 					}
-					if err := tx.Where("user_id = ? AND name = ?", uid(c), item.Folder).First(&folder).Error; err != nil {
+					if err := tx.Where("user_id = ? AND name = ?", httpx.UserID(c), item.Folder).First(&folder).Error; err != nil {
 						return err
 					}
 					folderID = &folder.ID
 					folderIDs[item.Folder] = folderID
 				}
 			}
-			feed := Feed{URL: canonical, URLHash: feedfetch.Hash(canonical), NextFetchAt: time.Now().UTC()}
+			feed := Feed{URL: canonical, URLHash: fetcher.Hash(canonical), NextFetchAt: time.Now().UTC()}
 			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&feed).Error; err != nil {
 				return err
 			}
 			if err := tx.Where("url_hash = ?", feed.URLHash).First(&feed).Error; err != nil {
 				return err
 			}
-			sub := Subscription{UserID: uid(c), FeedID: feed.ID, FolderID: folderID, PendingBaseline: !feed.Initialized}
+			sub := Subscription{UserID: httpx.UserID(c), FeedID: feed.ID, FolderID: folderID, PendingBaseline: !feed.Initialized}
 			if feed.Initialized {
-				baseline, err := baselineID(tx, feed.ID)
+				baseline, err := BaselineID(tx, feed.ID)
 				if err != nil {
 					return err
 				}
@@ -135,21 +136,21 @@ func (a *API) importOPML(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
-		fail(c, 500, "import failed")
+		httpx.Fail(c, 500, "import failed")
 		return
 	}
 	c.JSON(200, gin.H{"added": added, "skipped": skipped})
 }
 
-func (a *API) exportOPML(c *gin.Context) {
+func (a *Handler) ExportOPML(c *gin.Context) {
 	var subs []Subscription
 	var folders []Folder
-	if err := a.DB.WithContext(c.Request.Context()).Preload("Feed").Where("user_id = ?", uid(c)).Find(&subs).Error; err != nil {
-		fail(c, 500, "database error")
+	if err := a.DB.WithContext(c.Request.Context()).Preload("Feed").Where("user_id = ?", httpx.UserID(c)).Find(&subs).Error; err != nil {
+		httpx.Fail(c, 500, "database error")
 		return
 	}
-	if err := a.DB.WithContext(c.Request.Context()).Where("user_id = ?", uid(c)).Find(&folders).Error; err != nil {
-		fail(c, 500, "database error")
+	if err := a.DB.WithContext(c.Request.Context()).Where("user_id = ?", httpx.UserID(c)).Find(&folders).Error; err != nil {
+		httpx.Fail(c, 500, "database error")
 		return
 	}
 	names := map[uint64]string{}
@@ -183,7 +184,7 @@ func (a *API) exportOPML(c *gin.Context) {
 	}
 	data, err := xml.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		fail(c, 500, "export failed")
+		httpx.Fail(c, 500, "export failed")
 		return
 	}
 	c.Header("Content-Disposition", "attachment; filename=subscriptions.opml")

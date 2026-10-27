@@ -1,4 +1,4 @@
-module github.com/ushi02/go_feed
+module github.com/ushi02/go_feed/backend
 
 go 1.26.2
 

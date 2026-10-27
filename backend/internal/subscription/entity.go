@@ -1,19 +1,6 @@
-package reader
+package subscription
 
 import "time"
-
-type User struct {
-	ID           uint64    `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"-"`
-	CreatedAt    time.Time `json:"created_at"`
-}
-
-type Session struct {
-	TokenHash string
-	UserID    uint64
-	ExpiresAt time.Time
-}
 
 type Feed struct {
 	ID            uint64     `json:"id"`
@@ -46,24 +33,4 @@ type Subscription struct {
 	ReadThroughEntryID uint64  `json:"-"`
 	PendingBaseline    bool    `json:"-"`
 	Feed               Feed    `gorm:"foreignKey:FeedID" json:"feed"`
-}
-
-type Entry struct {
-	ID          uint64     `json:"id"`
-	FeedID      uint64     `json:"feed_id"`
-	GUIDHash    []byte     `json:"-"`
-	Title       string     `json:"title"`
-	URL         string     `json:"url"`
-	Content     string     `json:"content"`
-	Summary     string     `json:"summary"`
-	PublishedAt *time.Time `json:"published_at"`
-	SortAt      time.Time  `json:"sort_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-}
-
-type EntryState struct {
-	UserID       uint64
-	EntryID      uint64
-	ReadOverride *bool
-	StarredAt    *time.Time
 }

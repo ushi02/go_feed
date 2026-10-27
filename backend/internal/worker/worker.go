@@ -1,4 +1,4 @@
-package reader
+package worker
 
 import (
 	"context"
@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/mmcdole/gofeed"
-	"github.com/ushi02/go_feed/internal/feedfetch"
+	"github.com/ushi02/go_feed/backend/internal/entry"
+	"github.com/ushi02/go_feed/backend/internal/fetcher"
+	"github.com/ushi02/go_feed/backend/internal/subscription"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -50,8 +52,8 @@ func randomToken() string {
 	return hex.EncodeToString(b)
 }
 
-func (w *Worker) claim(ctx context.Context) (*Feed, string, error) {
-	var feed Feed
+func (w *Worker) claim(ctx context.Context) (*subscription.Feed, string, error) {
+	var feed subscription.Feed
 	token := randomToken()
 	err := w.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
@@ -64,7 +66,7 @@ func (w *Worker) claim(ctx context.Context) (*Feed, string, error) {
 		if result.RowsAffected == 0 {
 			return gorm.ErrRecordNotFound
 		}
-		return tx.Model(&Feed{}).Where("id = ?", feed.ID).Updates(map[string]any{
+		return tx.Model(&subscription.Feed{}).Where("id = ?", feed.ID).Updates(map[string]any{
 			"lease_until": time.Now().UTC().Add(2 * time.Minute), "lease_token": token,
 		}).Error
 	})
@@ -77,37 +79,37 @@ func (w *Worker) claim(ctx context.Context) (*Feed, string, error) {
 	return &feed, token, nil
 }
 
-func (w *Worker) process(ctx context.Context, feed Feed, token string) error {
+func (w *Worker) process(ctx context.Context, feed subscription.Feed, token string) error {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
-	result, err := feedfetch.Fetch(ctx, feed.URL, feed.ETag, feed.LastModified)
+	result, err := fetcher.Fetch(ctx, feed.URL, feed.ETag, feed.LastModified)
 	if err != nil {
 		backoff := time.Duration(1<<min(feed.FailureCount, 5)) * time.Hour
 		updateCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stop()
-		_ = w.DB.WithContext(updateCtx).Model(&Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(map[string]any{
+		_ = w.DB.WithContext(updateCtx).Model(&subscription.Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(map[string]any{
 			"failure_count": feed.FailureCount + 1, "last_error": truncate(err.Error(), 1024),
 			"next_fetch_at": time.Now().UTC().Add(backoff), "lease_until": nil, "lease_token": nil,
 		}).Error
 		return err
 	}
 	return w.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current Feed
+		var current subscription.Feed
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND lease_token = ?", feed.ID, token).First(&current).Error; err != nil {
 			return err
 		}
 		if result.FinalURL != "" && result.FinalURL != current.URL {
-			newHash := feedfetch.Hash(result.FinalURL)
-			var existing Feed
+			newHash := fetcher.Hash(result.FinalURL)
+			var existing subscription.Feed
 			err := tx.Where("url_hash = ?", newHash).First(&existing).Error
 			if err == nil && existing.ID != current.ID && !current.Initialized {
-				var subs []Subscription
+				var subs []subscription.Subscription
 				if err := tx.Where("feed_id = ?", current.ID).Find(&subs).Error; err != nil {
 					return err
 				}
 				for _, sub := range subs {
 					var duplicate int64
-					if err := tx.Model(&Subscription{}).Where("user_id = ? AND feed_id = ?", sub.UserID, existing.ID).Count(&duplicate).Error; err != nil {
+					if err := tx.Model(&subscription.Subscription{}).Where("user_id = ? AND feed_id = ?", sub.UserID, existing.ID).Count(&duplicate).Error; err != nil {
 						return err
 					}
 					if duplicate != 0 {
@@ -118,7 +120,7 @@ func (w *Worker) process(ctx context.Context, feed Feed, token string) error {
 					}
 					updates := map[string]any{"feed_id": existing.ID, "pending_baseline": !existing.Initialized}
 					if existing.Initialized {
-						baseline, err := baselineID(tx, existing.ID)
+						baseline, err := subscription.BaselineID(tx, existing.ID)
 						if err != nil {
 							return err
 						}
@@ -143,19 +145,19 @@ func (w *Worker) process(ctx context.Context, feed Feed, token string) error {
 		now := time.Now().UTC()
 		if !result.NotModified {
 			for _, item := range result.Feed.Items {
-				entry := entryFromItem(feed.ID, current.URL, item, now)
-				if entry == nil {
+				e := entryFromItem(feed.ID, current.URL, item, now)
+				if e == nil {
 					continue
 				}
-				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(entry).Error; err != nil {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(e).Error; err != nil {
 					return err
 				}
 			}
-			baseline, err := baselineID(tx, feed.ID)
+			baseline, err := subscription.BaselineID(tx, feed.ID)
 			if err != nil {
 				return err
 			}
-			if err := tx.Model(&Subscription{}).Where("feed_id = ? AND pending_baseline = 1", feed.ID).
+			if err := tx.Model(&subscription.Subscription{}).Where("feed_id = ? AND pending_baseline = 1", feed.ID).
 				Updates(map[string]any{"read_through_entry_id": baseline, "pending_baseline": false}).Error; err != nil {
 				return err
 			}
@@ -172,22 +174,11 @@ func (w *Worker) process(ctx context.Context, feed Feed, token string) error {
 		if result.Modified != "" {
 			updates["last_modified"] = truncate(result.Modified, 512)
 		}
-		return tx.Model(&Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(updates).Error
+		return tx.Model(&subscription.Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(updates).Error
 	})
 }
 
-func baselineID(tx *gorm.DB, feedID uint64) (uint64, error) {
-	var ids []uint64
-	if err := tx.Model(&Entry{}).Where("feed_id = ?", feedID).Order("id DESC").Limit(21).Pluck("id", &ids).Error; err != nil {
-		return 0, err
-	}
-	if len(ids) <= 20 {
-		return 0, nil
-	}
-	return ids[20], nil
-}
-
-func entryFromItem(feedID uint64, feedURL string, item *gofeed.Item, now time.Time) *Entry {
+func entryFromItem(feedID uint64, feedURL string, item *gofeed.Item, now time.Time) *entry.Entry {
 	key := strings.TrimSpace(item.GUID)
 	if key == "" {
 		key = strings.TrimSpace(item.Link)
@@ -208,7 +199,7 @@ func entryFromItem(feedID uint64, feedURL string, item *gofeed.Item, now time.Ti
 		published = &t
 		sortAt = t
 	}
-	link := feedfetch.ResolvePublicURL(item.Link, feedURL)
+	link := fetcher.ResolvePublicURL(item.Link, feedURL)
 	base := link
 	if base == "" {
 		base = feedURL
@@ -217,8 +208,8 @@ func entryFromItem(feedID uint64, feedURL string, item *gofeed.Item, now time.Ti
 	if content == "" {
 		content = item.Description
 	}
-	return &Entry{FeedID: feedID, GUIDHash: feedfetch.Hash(key), Title: truncate(item.Title, 512), URL: link,
-		Content: feedfetch.CleanHTML(content, base), Summary: truncate(item.Description, 4000), PublishedAt: published, SortAt: sortAt, CreatedAt: now}
+	return &entry.Entry{FeedID: feedID, GUIDHash: fetcher.Hash(key), Title: truncate(item.Title, 512), URL: link,
+		Content: fetcher.CleanHTML(content, base), Summary: truncate(item.Description, 4000), PublishedAt: published, SortAt: sortAt, CreatedAt: now}
 }
 
 func truncate(s string, limit int) string {

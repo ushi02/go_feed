@@ -15,7 +15,7 @@ services:
       - mysql_data:/var/lib/mysql
 
   api:
-    build: .
+    build: ./backend
     environment:
       MYSQL_DSN: root:123456@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC
       APP_ORIGIN: http://localhost:${WEB_PORT:-15173}
@@ -31,7 +31,7 @@ services:
         condition: service_healthy
 
   worker:
-    build: .
+    build: ./backend
     command: ["/worker"]
     environment:
       MYSQL_DSN: root:123456@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC

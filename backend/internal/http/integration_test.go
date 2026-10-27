@@ -1,4 +1,4 @@
-package reader_test
+package http_test
 
 import (
 	"bytes"
@@ -13,9 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/testcontainers/testcontainers-go"
 	tcmysql "github.com/testcontainers/testcontainers-go/modules/mysql"
-	"github.com/ushi02/go_feed/internal/db"
-	"github.com/ushi02/go_feed/internal/feedfetch"
-	"github.com/ushi02/go_feed/internal/reader"
+	"github.com/ushi02/go_feed/backend/internal/db"
+	"github.com/ushi02/go_feed/backend/internal/fetcher"
+	apihttp "github.com/ushi02/go_feed/backend/internal/http"
+	"github.com/ushi02/go_feed/backend/internal/worker"
 )
 
 const testOrigin = "http://localhost:5173"
@@ -59,11 +60,11 @@ func TestReaderFlow(t *testing.T) {
 	}))
 	defer rss.Close()
 	// httptest listens on 127.0.0.1, which the SSRF guard normally blocks.
-	orig := feedfetch.IPAllowed
-	feedfetch.IPAllowed = func(netip.Addr) bool { return true }
-	t.Cleanup(func() { feedfetch.IPAllowed = orig })
+	orig := fetcher.IPAllowed
+	fetcher.IPAllowed = func(netip.Addr) bool { return true }
+	t.Cleanup(func() { fetcher.IPAllowed = orig })
 
-	c := &client{t: t, router: reader.NewRouter(database)}
+	c := &client{t: t, router: apihttp.NewRouter(database)}
 
 	c.do("POST", "/api/auth/register", map[string]string{"username": "alice", "password": "password123"}, 201, nil)
 
@@ -75,7 +76,7 @@ func TestReaderFlow(t *testing.T) {
 	workerCtx, stopWorker := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {
-		reader.NewWorker(database).Run(workerCtx)
+		worker.NewWorker(database).Run(workerCtx)
 		close(done)
 	}()
 	var unread entryList

@@ -6,8 +6,8 @@
 ## 进度
 
 - [x] 第 0 步：安装 skill，更新文档
-- [ ] M0 安全网（2026-10-27：三项代码已完成，本地测试通过；CI 待 push 后确认）
-- [ ] M1 重构
+- [x] M0 安全网（2026-10-27 完成，CI 通过）
+- [ ] M1 重构（2026-10-27：第 1 步完成；第 2 步无需操作，代码里已没有 Redis）
 - [ ] M2 博客池和搜索
 - [ ] M3 chatbot
 - [ ] M4 上线和包装
@@ -30,7 +30,7 @@
 ### M1 重构（约 2 周，分成独立的小步骤）
 1. **只搬目录**：Go 代码移到 `backend/`，`internal/reader/` 按业务拆成 `account/ subscription/ entry/ worker/ middleware/ http/`；`feedfetch` 改名为 `fetcher`；同步修改 Dockerfile 和 compose 中的路径。**不改任何行为** → 验证：M0 的测试全部通过，`docker compose up` 正常运行
 2. **删除 Redis**：只保留 `ratelimit.go` 里的进程内限流部分，从 compose 中去掉 redis 服务 → 验证：测试通过
-3. **改为写入扩散模型**：先写一个会失败的测试，比如「订阅一个有 30 篇文章的源，未读的应该是**发布时间最新**的 20 篇」，以及「两个用户的已读状态互不影响」。然后修改 `00001_init.sql`：新增 `user_entries`，删除 `read_through_entry_id`、`pending_baseline`、`entry_states`；改写 worker 的入库逻辑、`listEntries`、`markRead`、`updateEntryState`。同时删掉重定向合并源的逻辑（`worker.go:99-142`）→ 验证：新测试通过，原有测试也通过
+3. **改为写入扩散模型**：先写一个会失败的测试，比如「订阅一个有 30 篇文章的源，未读的应该是**发布时间最新**的 20 篇」，以及「两个用户的已读状态互不影响」。然后修改 `00001_init.sql`：新增 `user_entries`，删除 `read_through_entry_id`、`pending_baseline`、`entry_states`；改写 worker 的入库逻辑、`listEntries`、`markRead`、`updateEntryState`。同时删掉重定向合并源的逻辑（`worker.go` 里 `FinalURL != current.URL` 那一段）。**重写时顺便按 handler / service / repo 分层**（entry、worker 入库逻辑；account、subscription 也一起拆），因为这部分代码反正要重写，先分层再重写等于做两遍 → 验证：新测试通过，原有测试也通过；`repo.go` 以外的文件不再出现 `*gorm.DB` 的查询
 4. **修复小 bug，每个都先写复现测试**：
    - 文章列表接口不再返回正文，新增文章详情接口
    - 正文里的链接加上 `target="_blank"`（`content.go`）
@@ -59,17 +59,17 @@
 
 ## 可复用的现有代码（不要重写）
 
-- `internal/feedfetch/fetch.go`：`Canonical`、`allowedIP`、带 IP 检查的 `client()`、`Discover`、`Hash`、`ResolvePublicURL`
-- `internal/feedfetch/content.go`：`CleanHTML`
-- `internal/reader/worker.go:53`：`claim`，基于 `SKIP LOCKED` 和租约认领任务，M2 并发化时直接复用
-- `internal/reader/entries.go:29`：游标的编码和解码
-- `internal/reader/opml.go`：OPML 导入和导出
-- `internal/reader/ratelimit.go`：其中的进程内限流部分
-- `internal/db/db.go`：goose 迁移，使用 embed 打包 SQL 文件
+- `backend/internal/fetcher/fetch.go`：`Canonical`、`allowedIP`、带 IP 检查的 `client()`、`Discover`、`Hash`、`ResolvePublicURL`
+- `backend/internal/fetcher/content.go`：`CleanHTML`
+- `backend/internal/worker/worker.go`：`claim`，基于 `SKIP LOCKED` 和租约认领任务，M2 并发化时直接复用
+- `backend/internal/entry/handler.go`：游标的编码和解码
+- `backend/internal/subscription/opml.go`：OPML 导入和导出
+- `backend/internal/middleware/ratelimit.go`：进程内限流
+- `backend/internal/db/db.go`：goose 迁移，使用 embed 打包 SQL 文件
 
 ## 整体验证方式
 
-- 每一步完成后执行 `go vet ./... && go test -race ./...`，CI 必须通过
+- 每一步完成后在 `backend/` 下执行 `go vet ./... && go test -race ./...`，CI 必须通过
 - 每个里程碑结束时，执行 `docker compose down -v && docker compose up --build`，从空数据库开始，在浏览器里走一遍完整流程
 - 每一步完成后，用中文向作者说明改了什么、为什么这样设计、面试可能被问什么，并更新 `docs/interview-notes.md`
 - 不自行 commit，每一步由作者确认后再提交

@@ -4,7 +4,7 @@
 
 ## 当前状态与目标
 
-- 现状：Go 代码在仓库根目录，大部分逻辑在 `internal/reader/`；已读状态使用水位线模型（`read_through_entry_id`）。
+- 现状：Go 代码已按模块拆到 `backend/internal/`，但还没有拆 service/repo 分层；已读状态仍使用水位线模型（`read_through_entry_id`）。
 - 目标：按下方「目标结构」重构，并改用写入扩散模型。重构完成前，两种结构会同时存在，**以本文件的目标为准**。
 - 架构讲解（给作者复习用）：`docs/learning/project-overview.html`
 
@@ -27,6 +27,7 @@ backend/
     fetcher/              抓取 RSS、Discover、HTML 清理、SSRF 防护
     worker/               调度、有界并发、按域名限流
     middleware/           登录校验、Origin 校验、限流
+    httpx/                handler 共用的小工具（Fail、ParseID、UserID）
     http/router.go        路由
     db/                   连接和迁移
 docs/
@@ -57,8 +58,8 @@ docs/
 
 ```sh
 docker compose up --build        # 本地启动全部服务：前端 :15173，API :18080，MySQL :3308
-go test -race ./...              # 测试
-go vet ./...
+cd backend && go test -race ./...   # 测试（集成测试需要 Docker；-short 跳过）
+cd backend && go vet ./...
 ```
 
 ## 与作者协作

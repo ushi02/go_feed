@@ -4,8 +4,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/ushi02/go_feed/internal/db"
-	"github.com/ushi02/go_feed/internal/reader"
+	"github.com/ushi02/go_feed/backend/internal/db"
+	apihttp "github.com/ushi02/go_feed/backend/internal/http"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	if err := reader.NewRouter(database).Run(":" + port); err != nil {
+	if err := apihttp.NewRouter(database).Run(":" + port); err != nil {
 		log.Fatalf("run server: %v", err)
 	}
 }
