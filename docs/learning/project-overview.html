@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>go_feed 项目导览</title>
+<style>
+:root {
+  --bg: #f7f5f0; --surface: #ffffff; --surface-2: #f0ede6; --text: #1f1d1a; --muted: #6b665d;
+  --border: #e2ddd2; --accent: #2f6f5e; --accent-soft: #e3efe9; --warn: #9a5b13; --warn-soft: #f6ead9;
+  --blue: #2c5d8f; --blue-soft: #e2ebf5; --purple: #6a4c93; --purple-soft: #ece6f4; --code-bg: #f2efe8;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161513; --surface: #1f1e1b; --surface-2: #282622; --text: #ece8e0; --muted: #a39d92;
+    --border: #36332d; --accent: #6fbfa6; --accent-soft: #1f3530; --warn: #e0a55c; --warn-soft: #3a2c1a;
+    --blue: #86b3e0; --blue-soft: #1d2a38; --purple: #b9a0dc; --purple-soft: #2c2438; --code-bg: #24221e;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161513; --surface: #1f1e1b; --surface-2: #282622; --text: #ece8e0; --muted: #a39d92;
+  --border: #36332d; --accent: #6fbfa6; --accent-soft: #1f3530; --warn: #e0a55c; --warn-soft: #3a2c1a;
+  --blue: #86b3e0; --blue-soft: #1d2a38; --purple: #b9a0dc; --purple-soft: #2c2438; --code-bg: #24221e;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 32px 16px 80px; }
+header.hero { padding: 24px 0 8px; }
+.eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--accent); font-weight: 600; text-transform: uppercase; }
+h1 { font-size: 32px; line-height: 1.3; margin: 6px 0 8px; }
+h2 { font-size: 22px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 15px; }
+h3 { font-size: 17px; margin: 22px 0 8px; }
+p { margin: 8px 0; }
+.lede { color: var(--muted); font-size: 17px; }
+nav.toc { margin: 20px 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a { text-decoration: none; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
+nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+section.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin: 20px 0; }
+.note { background: var(--warn-soft); color: var(--text); border-left: 3px solid var(--warn); padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 15px; }
+.tip { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 15px; }
+code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .88em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.6 "SF Mono", Menlo, Consolas, monospace; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.table-scroll { overflow-x: auto; margin: 10px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 520px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.tag.green { background: var(--accent-soft); color: var(--accent); }
+.tag.blue { background: var(--blue-soft); color: var(--blue); }
+.tag.purple { background: var(--purple-soft); color: var(--purple); }
+.tag.orange { background: var(--warn-soft); color: var(--warn); }
+
+/* Runtime diagram */
+.diagram { display: grid; gap: 10px; justify-items: center; margin: 16px 0; }
+.row { display: flex; gap: 14px; align-items: center; justify-content: center; flex-wrap: wrap; width: 100%; }
+.box { border: 1.5px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 10px 16px; text-align: center; min-width: 190px; }
+.box strong { display: block; font-size: 15px; }
+.box small { color: var(--muted); font-size: 13px; }
+.box.green { border-color: var(--accent); background: var(--accent-soft); }
+.box.blue { border-color: var(--blue); background: var(--blue-soft); }
+.box.purple { border-color: var(--purple); background: var(--purple-soft); }
+.box.orange { border-color: var(--warn); background: var(--warn-soft); }
+.box.ext { border-style: dashed; background: transparent; }
+.arrow { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.4; }
+.arrow b { display: block; font-size: 18px; color: var(--text); }
+
+/* Folder tree */
+.tree { font: 14px/1.9 "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; white-space: pre; }
+.tree .c { color: var(--muted); }
+.tree .d { color: var(--accent); font-weight: 600; }
+
+/* Steps */
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 12px 0; }
+ol.steps li { counter-increment: s; position: relative; padding: 4px 0 12px 44px; }
+ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 4px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--surface); font-weight: 700; font-size: 14px; display: grid; place-items: center; }
+ol.steps li:not(:last-child)::after { content: ""; position: absolute; left: 13.5px; top: 34px; bottom: 0; width: 1px; background: var(--border); }
+
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
+.compare > div { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface-2); }
+.compare h4 { margin: 0 0 6px; font-size: 16px; }
+.compare ul { margin: 6px 0 0; padding-left: 20px; font-size: 15px; }
+@media (max-width: 640px) {
+  h1 { font-size: 26px; }
+  section.card { padding: 18px 16px; }
+  .compare { grid-template-columns: 1fr; }
+  .box { min-width: 0; width: 100%; }
+}
+footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">go_feed · 学习笔记</div>
+    <h1>项目导览：每样东西在哪里、做什么</h1>
+    <p class="lede">写给开发经验不多的自己看。先看比喻，再看运行结构、代码目录和数据。最后是登录方式（Session 与 JWT）、硬盘，以及存储模型和部署配置的设计。</p>
+    <nav class="toc">
+      <a href="#analogy">餐厅比喻</a><a href="#runtime">运行结构</a><a href="#folders">代码目录</a>
+      <a href="#layers">四层文件</a><a href="#data">数据表</a><a href="#flow">一次点击的旅程</a>
+      <a href="#auth">Session 与 JWT</a><a href="#disk">硬盘</a><a href="#storage">存储模型</a><a href="#deploy">本地与生产</a>
+    </nav>
+    <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，仓库里的代码还是旧结构：Go 代码放在根目录，大部分逻辑在 <code>internal/reader/</code>，使用水位线模型。</div>
+  </header>
+
+  <section class="card" id="analogy">
+    <h2><span class="num">01</span>餐厅比喻</h2>
+    <p>整个项目可以拆成三类东西：<strong>代码写在哪里</strong>、<strong>程序运行起来是什么样</strong>、<strong>数据存在哪里</strong>。先用餐厅来理解各部分的角色：</p>
+    <div class="table-scroll"><table>
+      <tr><th>项目里的部分</th><th>餐厅里的角色</th><th>做什么</th></tr>
+      <tr><td><span class="tag blue">前端</span> React</td><td>大堂和菜单</td><td>你在浏览器里看到、点击的页面</td></tr>
+      <tr><td><span class="tag green">API</span> Go</td><td>服务员</td><td>接收页面的请求（「给我未读文章」「标为已读」），去仓库取数据，再端回给页面</td></tr>
+      <tr><td><span class="tag green">Worker</span> Go</td><td>采购员</td><td>不和顾客打交道，按时去各个博客「进货」，也就是抓 RSS，然后存进仓库</td></tr>
+      <tr><td><span class="tag orange">MySQL</span></td><td>仓库</td><td>所有数据都在这里：用户、订阅、文章、已读状态</td></tr>
+      <tr><td><span class="tag purple">DeepSeek</span>（之后加）</td><td>外聘顾问</td><td>遇到「推荐几个写某某话题的博客」这种问题时，服务员去请教它</td></tr>
+    </table></div>
+  </section>
+
+  <section class="card" id="runtime">
+    <h2><span class="num">02</span>运行起来是什么样子</h2>
+    <p>下面每个彩色方框都是一个<strong>独立运行的程序</strong>。<code>docker compose up</code> 会用 Docker 把它们一起启动，每个程序跑在自己的「容器」里。容器可以理解成一个隔离的小盒子，里面装好了这个程序需要的一切。</p>
+    <div class="diagram">
+      <div class="row"><div class="box ext"><strong>你的浏览器</strong><small>Chrome / Safari</small></div></div>
+      <div class="arrow"><b>↓</b>① 打开网页</div>
+      <div class="row"><div class="box blue"><strong>前端 · React</strong><small>frontend/ 里的代码</small></div></div>
+      <div class="arrow"><b>↓</b>② 请求 /api/...</div>
+      <div class="row">
+        <div class="box green"><strong>API 服务 · Go</strong><small>backend/cmd/api</small></div>
+        <div class="arrow">→ 问问题 →</div>
+        <div class="box purple ext"><strong>DeepSeek</strong><small>chatbot，之后加</small></div>
+      </div>
+      <div class="arrow"><b>↓</b>③ 读写数据</div>
+      <div class="row"><div class="box orange"><strong>MySQL 数据库</strong><small>数据存在硬盘上</small></div></div>
+      <div class="arrow"><b>↑</b>⑤ 存入新文章</div>
+      <div class="row">
+        <div class="box green"><strong>Worker · Go</strong><small>backend/cmd/worker</small></div>
+        <div class="arrow">→ ④ 定时抓 RSS →</div>
+        <div class="box ext"><strong>各个博客网站</strong><small>阮一峰、Go Blog……</small></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="folders">
+    <h2><span class="num">03</span>代码放在哪里</h2>
+<div class="tree"><span class="d">go_feed/</span>
+├── <span class="d">frontend/</span>                 <span class="c">前端：页面长什么样、点按钮后发什么请求</span>
+│   ├── src/App.tsx           <span class="c">页面代码</span>
+│   └── package.json          <span class="c">前端依赖了哪些库</span>
+│
+├── <span class="d">backend/</span>                  <span class="c">后端：所有 Go 代码</span>
+│   ├── <span class="d">cmd/</span>                  <span class="c">「启动入口」，每个子文件夹对应一个程序</span>
+│   │   ├── api/main.go       <span class="c">启动服务员</span>
+│   │   └── worker/main.go    <span class="c">启动采购员</span>
+│   ├── <span class="d">internal/</span>             <span class="c">真正的业务代码，按「业务模块」分文件夹</span>
+│   │   ├── account/          <span class="c">注册、登录</span>
+│   │   ├── subscription/     <span class="c">订阅、取消订阅</span>
+│   │   ├── entry/            <span class="c">文章列表、已读、收藏</span>
+│   │   ├── search/           <span class="c">博客池搜索（之后加）</span>
+│   │   ├── chat/             <span class="c">chatbot（之后加）</span>
+│   │   ├── fetcher/          <span class="c">怎么抓一个 RSS、怎么防止被利用去访问内网</span>
+│   │   ├── worker/           <span class="c">多久抓一次、同时抓几个</span>
+│   │   ├── middleware/       <span class="c">每个请求都要经过的检查，比如「登录了吗」</span>
+│   │   ├── http/router.go    <span class="c">路由表：哪个网址交给哪段代码处理</span>
+│   │   └── db/migrations/    <span class="c">建表的 SQL 语句</span>
+│   ├── go.mod                <span class="c">Go 依赖了哪些库</span>
+│   └── Dockerfile            <span class="c">怎么把 Go 代码打包成容器</span>
+│
+├── docker-compose.yml        <span class="c">本地开发：一键启动所有容器</span>
+├── docker-compose.prod.yml   <span class="c">生产环境（VPS）用的配置</span>
+├── <span class="d">docs/</span>                     <span class="c">设计文档、面试笔记、本页</span>
+├── CLAUDE.md                 <span class="c">给 AI 看的项目说明</span>
+└── README.md                 <span class="c">给人看的项目说明</span></div>
+  </section>
+
+  <section class="card" id="layers">
+    <h2><span class="num">04</span>每个业务模块里的四个文件</h2>
+    <p>照着 <code>feedsystem_video_go</code> 的结构来。以 <code>entry/</code>（文章）为例：</p>
+    <div class="table-scroll"><table>
+      <tr><th>文件</th><th>餐厅角色</th><th>做什么</th></tr>
+      <tr><td><code>entity.go</code></td><td>菜品的定义</td><td>「一篇文章」有哪些字段：标题、链接、正文……</td></tr>
+      <tr><td><code>handler.go</code></td><td>服务员</td><td>接收 HTTP 请求，检查参数，调用 service，把结果返回给页面</td></tr>
+      <tr><td><code>service.go</code></td><td>厨师</td><td>业务规则，比如「只能修改自己订阅里的文章」</td></tr>
+      <tr><td><code>repo.go</code></td><td>仓库管理员</td><td>唯一直接和 MySQL 打交道的地方，负责执行 SQL</td></tr>
+    </table></div>
+    <div class="tip">分层的好处：每个文件只管一件事。改数据库查询不会影响接口，改接口格式也不会影响业务规则；测试时也可以单独测某一层。</div>
+  </section>
+
+  <section class="card" id="data">
+    <h2><span class="num">05</span>数据存在哪里</h2>
+    <p>全部都在 <strong>MySQL</strong> 里，主要有这些表：</p>
+    <div class="table-scroll"><table>
+      <tr><th>表</th><th>存什么</th><th>举例</th></tr>
+      <tr><td><code>users</code></td><td>账号</td><td>你的用户名、加密后的密码</td></tr>
+      <tr><td><code>sessions</code></td><td>登录状态</td><td>「这个浏览器已经登录为 ushi」</td></tr>
+      <tr><td><code>feeds</code></td><td>博客源</td><td>阮一峰的博客和它的 RSS 地址；是否在博客池里；下次什么时候抓</td></tr>
+      <tr><td><code>subscriptions</code></td><td>谁订阅了谁</td><td>「ushi 订阅了阮一峰」</td></tr>
+      <tr><td><code>entries</code></td><td>文章</td><td>「科技爱好者周刊第 416 期」的标题和正文</td></tr>
+      <tr><td><code>user_entries</code></td><td>个人阅读状态</td><td>「ushi 读过第 416 期，并且收藏了」</td></tr>
+    </table></div>
+  </section>
+
+  <section class="card" id="flow">
+    <h2><span class="num">06</span>一次点击的旅程：点开一篇文章</h2>
+    <ol class="steps">
+      <li>你在页面上点了一篇文章。前端发出请求：<code>PATCH /api/entries/416/state {"read": true}</code></li>
+      <li>请求先经过 <code>middleware/</code>：检查 Cookie，确认你已经登录，是 ushi。</li>
+      <li>路由表 <code>http/router.go</code> 把这个请求交给 <code>entry/handler.go</code>。</li>
+      <li>handler 调用 <code>entry/service.go</code>，确认这篇文章确实在你的订阅里。</li>
+      <li>service 调用 <code>entry/repo.go</code>，执行 SQL：<code>UPDATE user_entries SET read=1 WHERE user_id=… AND entry_id=416</code></li>
+      <li>处理成功后，页面把这篇文章变成灰色，侧栏的未读数减 1。</li>
+    </ol>
+    <p>这篇文章之所以会出现在数据库里，是因为之前 Worker（<code>cmd/worker</code> → <code>worker/</code> → <code>fetcher/</code>）抓到了 RSS，把它存进 <code>entries</code>，同时给每个订阅者在 <code>user_entries</code> 里插了一行「未读」。这就是<strong>写入扩散</strong>（fan-out on write）。</p>
+  </section>
+
+  <section class="card" id="auth">
+    <h2><span class="num">07</span>Session 和 JWT 是一个东西吗？</h2>
+    <p><strong>不是，但它们解决的是同一个问题</strong>：HTTP 本身不记得你是谁，每个请求都是独立的。登录之后，服务器得有办法在后续请求里认出「这是 ushi」。两者是两种不同的做法：</p>
+    <div class="compare">
+      <div>
+        <h4><span class="tag green">Session</span> 本项目在用</h4>
+        <p>像<strong>寄存处的号码牌</strong>：</p>
+        <ul>
+          <li>登录时，服务器生成一串随机号码，在 <code>sessions</code> 表里记下「号码 → ushi」</li>
+          <li>号码交给浏览器，存在 Cookie 里</li>
+          <li>之后每次请求，服务器拿号码去<strong>查表</strong>，就知道你是谁</li>
+          <li>退出登录时删掉这一行，号码立即作废</li>
+        </ul>
+      </div>
+      <div>
+        <h4><span class="tag blue">JWT</span> video 项目在用</h4>
+        <p>像<strong>盖了公章的通行证</strong>：</p>
+        <ul>
+          <li>登录时，服务器把「user_id=ushi，有效期到某时」写在凭证上，再用密钥签名</li>
+          <li>服务器<strong>不存储</strong>它，只验证签名是否真实</li>
+          <li>优点：不用查数据库，适合多个服务共同验证</li>
+          <li>缺点：在过期之前<strong>很难提前作废</strong>，所以通常要搭配短有效期加 Refresh Token</li>
+        </ul>
+      </div>
+    </div>
+    <div class="tip">容易混淆的一点：<strong>Cookie</strong> 只是「把凭证放在哪里」的问题，和「用 Session 还是 JWT」无关。JWT 也可以放在 Cookie 里。本项目只给浏览器用，退出后要能立刻失效，所以用 Session + HttpOnly Cookie。面试里可以讲这个取舍。</div>
+  </section>
+
+  <section class="card" id="disk">
+    <h2><span class="num">08</span>硬盘在哪里？</h2>
+    <p>硬盘的英文是 <strong>disk</strong>（完整说法是 hard disk drive，简称 HDD）。现在的电脑和服务器大多用 <strong>SSD</strong>（Solid State Drive，固态硬盘）。日常交流中，「存储」一般说 <strong>storage</strong>。</p>
+    <div class="table-scroll"><table>
+      <tr><th>场景</th><th>数据实际在哪里</th></tr>
+      <tr><td>本地开发（Mac）</td><td>Mac 里的 SSD。Mac 上的 Docker 其实运行在一个小型 Linux 虚拟机里，MySQL 的数据存在 Docker 的<strong>数据卷（volume）</strong>中。这个数据卷位于虚拟机的磁盘文件里，就在你的 Mac 上。删掉容器不会丢数据，但执行 <code>docker compose down -v</code> 会连数据卷一起删掉。</td></tr>
+      <tr><td>部署到 VPS</td><td>云服务商机房里的物理硬盘。分给你的是一块<strong>虚拟磁盘</strong>（block storage），一般有 25GB 以上。服务器关机后数据还在，但删除服务器时，数据会一起消失，所以需要备份。</td></tr>
+    </table></div>
+    <div class="note">内存（memory / RAM）和硬盘是两回事：内存速度快，但断电就清空，用来放「正在用的东西」；硬盘速度慢一些，但能长期保存。MySQL 会把常用的数据从硬盘缓存到内存里，以加快读取。</div>
+  </section>
+
+  <section class="card" id="storage">
+    <h2><span class="num">09</span>存储模型：三张核心表</h2>
+    <p>核心思想：<strong>一个博客只存一份，一篇文章只存一份，每个人的阅读状态单独存。</strong> 博客池里的博客和你订阅的博客放在同一张表里，用标记区分。</p>
+<pre><code>feeds（博客源）
+ id | url                          | in_pool | 订阅人数 | 下次抓取时间
+ 12 | feeds.feedburner.com/ruanyifeng | true    | 1      | 6 小时后   ← 有人订阅：6 小时抓一次
+ 88 | example-blog.com/feed        | true    | 0      | 明天      ← 只在博客池里：每天抓一次
+
+entries（文章，所有人共享）
+ id  | feed_id | title             | content（完整正文） | search_text（标题+摘要）
+ 416 | 12      | 科技爱好者周刊 416 | &lt;p&gt;……&lt;/p&gt;        | 科技爱好者周刊 416 本周……
+
+user_entries（个人状态，只有订阅者才有）
+ user_id | entry_id | read_at          | starred_at
+ ushi    | 416      | 2026-10-27 09:00 | NULL
+ xiaoming| 416      | NULL             | NULL        ← 小明还没读</code></pre>
+    <h3>各种操作发生时，三张表的变化</h3>
+    <div class="table-scroll"><table>
+      <tr><th>发生了什么</th><th>表的变化</th></tr>
+      <tr><td>导入中文独立博客列表</td><td><code>feeds</code> 增加约 1570 行，<code>in_pool=true</code></td></tr>
+      <tr><td>Worker 抓到新文章</td><td><code>entries</code> 增加一行；如果有订阅者，就给<strong>每个订阅者</strong>在 <code>user_entries</code> 插入一行未读（写入扩散）</td></tr>
+      <tr><td>你订阅一个博客</td><td><code>subscriptions</code> 增加一行；按<strong>发布时间</strong>取最近 20 篇，在 <code>user_entries</code> 里插入未读记录</td></tr>
+      <tr><td>你读了一篇文章</td><td>把你那一行的 <code>read_at</code> 设为当前时间，别人的不受影响</td></tr>
+      <tr><td>全部标为已读</td><td><code>UPDATE user_entries SET read_at=NOW() WHERE user_id=你 AND read_at IS NULL</code></td></tr>
+      <tr><td>侧栏未读数</td><td><code>SELECT feed_id, COUNT(*) … WHERE user_id=你 AND read_at IS NULL GROUP BY feed_id</code></td></tr>
+      <tr><td>取消订阅</td><td>删除这条订阅，以及你在这个博客下的 <code>user_entries</code>（收藏的保留）。博客和文章本身不删，别人可能还在订阅，它也可能还在博客池里</td></tr>
+      <tr><td>搜索某个话题</td><td>只在 <code>search_text</code> 上走全文索引，不扫描完整正文，所以索引小、速度快</td></tr>
+      <tr><td>定期清理</td><td>没有订阅者的博客，每个只保留最近 30 篇；被人收藏的文章永远不删</td></tr>
+    </table></div>
+    <div class="tip">为什么要「统一存储」？一篇文章不会因为「在博客池里」还是「有人订阅」而变成不同的东西，分开存反而会出现两份数据、两套逻辑。统一之后，有没有订阅者只影响两件事：<strong>抓取频率</strong>，以及<strong>有没有 user_entries</strong>。</div>
+  </section>
+
+  <section class="card" id="deploy">
+    <h2><span class="num">10</span>本地开发与生产环境（VPS）</h2>
+    <p>代码完全一样，区别在环境，所以准备两份配置：<code>docker-compose.yml</code>（开发）和 <code>docker-compose.prod.yml</code>（生产）。</p>
+    <div class="diagram">
+      <div class="row"><div class="box ext"><strong>访问者</strong><small>https://你的域名.me</small></div></div>
+      <div class="arrow"><b>↓</b>只开放 443 (HTTPS) 和 80 端口</div>
+      <div class="row"><div class="box blue"><strong>Caddy</strong><small>门卫：自动申请 HTTPS 证书，把请求转发给 API</small></div></div>
+      <div class="arrow"><b>↓</b>服务器内部网络</div>
+      <div class="row">
+        <div class="box green"><strong>API</strong><small>同时提供前端静态文件</small></div>
+        <div class="box green"><strong>Worker</strong><small>定时抓取</small></div>
+      </div>
+      <div class="arrow"><b>↓</b></div>
+      <div class="row">
+        <div class="box orange"><strong>MySQL</strong><small>不对外开放，设置内存上限</small></div>
+        <div class="box ext"><strong>每日备份</strong><small>mysqldump → 存到别处</small></div>
+      </div>
+    </div>
+    <div class="table-scroll"><table>
+      <tr><th></th><th>本地（Mac）</th><th>VPS</th></tr>
+      <tr><td>谁能访问</td><td>只有你，<code>localhost</code></td><td>所有人，通过 <code>https://域名</code></td></tr>
+      <tr><td>运行时间</td><td>Mac 合盖就停了</td><td>24 小时运行</td></tr>
+      <tr><td>HTTPS</td><td>不需要</td><td>必须。由 Caddy 自动向 Let's Encrypt 免费申请证书</td></tr>
+      <tr><td>密码和密钥</td><td><code>123456</code> 也无所谓</td><td>强密码写在服务器上的 <code>.env</code> 文件里，<strong>不提交到 git</strong>；仓库里只放 <code>.env.example</code> 模板</td></tr>
+      <tr><td>端口</td><td>MySQL 开放 3308，方便调试</td><td><strong>MySQL 绝不对外</strong>，只开放 80 和 443</td></tr>
+      <tr><td>前端</td><td>Vite 开发服务器，改代码后自动刷新</td><td><code>npm run build</code> 生成静态文件，由 Go 直接提供，和 API 同源</td></tr>
+      <tr><td>资源</td><td>内存很充裕</td><td>只有 1 到 2GB，要限制 MySQL 的内存用量</td></tr>
+      <tr><td>备份</td><td>无所谓</td><td>每天执行 <code>mysqldump</code>，备份文件存到别的地方</td></tr>
+      <tr><td>更新代码</td><td>改完自动刷新</td><td><code>git pull</code> 后执行 <code>docker compose -f docker-compose.prod.yml up -d --build</code>，以后可以让 GitHub Actions 自动执行</td></tr>
+    </table></div>
+    <h3>几个新名词</h3>
+    <div class="table-scroll"><table>
+      <tr><th>名词</th><th>大白话</th></tr>
+      <tr><td>反向代理（reverse proxy）</td><td>站在最前面的门卫，替后面的程序接收所有请求，再转交进去。Caddy 和 Nginx 都是反向代理</td></tr>
+      <tr><td>HTTPS 证书</td><td>证明「这个网站确实是你的域名」，并且对传输内容加密。没有证书时，浏览器会显示「不安全」</td></tr>
+      <tr><td>端口（port）</td><td>一台服务器上的「门牌号」。80 是 HTTP，443 是 HTTPS，3306 是 MySQL。对外开放的门越少越安全</td></tr>
+      <tr><td><code>.env</code> 文件</td><td>存放密码和密钥的文件，程序启动时读取。不放进代码仓库，防止泄露</td></tr>
+      <tr><td>mysqldump</td><td>MySQL 自带的工具，把整个数据库导出成一个 SQL 文件，可以用来恢复数据</td></tr>
+    </table></div>
+  </section>
+
+  <footer>go_feed 学习笔记 · 2026-10-27 · 设计确定后会继续更新</footer>
+</div>
+</body>
+</html>

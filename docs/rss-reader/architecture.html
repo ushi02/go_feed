@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Go Feed Reader · 架构解说</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#101827;color:#e8eef8}*{box-sizing:border-box}body{max-width:1100px;margin:auto;padding:48px 24px}h1{font-size:clamp(2.2rem,5vw,3.8rem);margin:10px 0}h2{margin-top:52px}p,li{color:#b9c6d8;line-height:1.7}.intro{max-width:750px;font-size:1.1rem}.tag{display:inline-block;padding:4px 10px;border-radius:99px;background:#264b55;color:#a7f3d0;font-size:.8rem}.diagram{margin-top:35px;padding:28px;border:1px solid #34445e;border-radius:20px;background:#182439}.row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}.row+.row{margin-top:20px}.box{flex:1 1 160px;min-width:160px;padding:18px;border:1px solid #506482;border-radius:12px;background:#22314a}.box strong{display:block;margin-bottom:7px;color:#fff}.box small{color:#b9c6d8;line-height:1.5}.arrow{color:#7dd3fc;font-size:1.5rem}.later{opacity:.65;border-style:dashed}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px}.card{padding:20px;border:1px solid #34445e;border-radius:14px;background:#182439}.card h3{margin-top:0}.note{border-left:3px solid #68b69b;padding-left:18px}a{color:#a7f3d0}
+  </style>
+</head>
+<body>
+  <header><span class="tag">项目架构 · 本地优先</span><h1>Go Feed Reader</h1><p class="intro">一个多人使用的 RSS 阅读器：每个网站只抓取一次文章，每位用户独立管理订阅、文件夹、已读和收藏。</p></header>
+  <main>
+    <section><h2>系统由什么组成？</h2><div class="diagram">
+      <div class="row"><div class="box"><strong>浏览器</strong><small>阅读与管理订阅</small></div><span class="arrow">→</span><div class="box"><strong>React + Vite</strong><small>列表、文件夹、OPML</small></div><span class="arrow">→</span><div class="box"><strong>Go API</strong><small>账号、查询与阅读状态</small></div><span class="arrow">→</span><div class="box"><strong>MySQL</strong><small>所有正式数据</small></div></div>
+      <div class="row"><div class="box"><strong>外部网站</strong><small>RSS、Atom、JSON Feed</small></div><span class="arrow">→</span><div class="box"><strong>Go Worker</strong><small>定时抓取、去重、重试</small></div><span class="arrow">→</span><div class="box"><strong>MySQL</strong><small>文章与抓取进度</small></div></div>
+    </div></section>
+    <section><h2>添加订阅后会发生什么？</h2><div class="cards"><div class="card"><h3>1 · 找到 Feed</h3><p>输入博客首页或 Feed 地址。若首页提供多个订阅入口，用户可以选择。</p></div><div class="card"><h3>2 · 尽快抓取</h3><p>新源立即进入待抓取状态。Worker 认领任务，并在安全限制内访问源站。</p></div><div class="card"><h3>3 · 独立阅读</h3><p>文章只存一份；每人的订阅、已读水位和收藏状态分别保存。</p></div></div></section>
+    <section><h2>为什么要有已读水位？</h2><p class="note">订阅已有源时，只有最近 20 篇默认未读。批量标已读只推进该订阅的文章 ID 水位，不会为每篇文章插入一条用户状态。单篇手动改动保存在稀疏状态表中。</p></section>
+    <section><h2>将来怎样上云？</h2><p>托管方案：S3 + CloudFront 提供前端，ECS Fargate 运行 Go API 和 Worker，RDS for MySQL 保存数据。个人低成本方案：一台 Lightsail 或 EC2 运行 Compose，前端仍可放在 S3 + CloudFront。当前登录限流保存在 API 进程内；扩容到多个 API 实例时需要共享限流方案。</p><p>详细取舍见 <a href="deployment.md">部署说明</a>。</p></section>
+  </main>
+</body>
+</html>

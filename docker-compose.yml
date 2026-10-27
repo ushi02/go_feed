@@ -1,0 +1,53 @@
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: go_feed
+    ports:
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  api:
+    build: .
+    environment:
+      MYSQL_DSN: root:123456@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC
+      APP_ORIGIN: http://localhost:${WEB_PORT:-15173}
+    ports:
+      - "${API_PORT:-18080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["/worker"]
+    environment:
+      MYSQL_DSN: root:123456@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC
+    depends_on:
+      mysql:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${WEB_PORT:-15173}:5173"
+    depends_on:
+      - api
+
+
+volumes:
+  mysql_data:
