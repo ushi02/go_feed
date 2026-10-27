@@ -1,6 +1,9 @@
 package subscription
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 type Feed struct {
 	ID            uint64     `json:"id"`
@@ -26,11 +29,24 @@ type Folder struct {
 }
 
 type Subscription struct {
-	ID                 uint64  `json:"id"`
-	UserID             uint64  `json:"-"`
-	FeedID             uint64  `json:"feed_id"`
-	FolderID           *uint64 `json:"folder_id"`
-	ReadThroughEntryID uint64  `json:"-"`
-	PendingBaseline    bool    `json:"-"`
-	Feed               Feed    `gorm:"foreignKey:FeedID" json:"feed"`
+	ID       uint64  `json:"id"`
+	UserID   uint64  `json:"-"`
+	FeedID   uint64  `json:"feed_id"`
+	FolderID *uint64 `json:"folder_id"`
+	Feed     Feed    `gorm:"foreignKey:FeedID" json:"feed"`
 }
+
+// ImportItem is one feed read from an OPML file.
+type ImportItem struct{ URL, Folder string }
+
+var (
+	ErrNotFound          = errors.New("not found")
+	ErrAlreadySubscribed = errors.New("already subscribed")
+	ErrInvalidFolder     = errors.New("invalid folder")
+	ErrRefreshedRecently = errors.New("feed was refreshed recently")
+)
+
+// InvalidURLError carries the reason a feed URL was rejected, shown to the user as is.
+type InvalidURLError struct{ Err error }
+
+func (e InvalidURLError) Error() string { return e.Err.Error() }

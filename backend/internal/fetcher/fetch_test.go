@@ -144,6 +144,9 @@ func TestCleanHTMLResolvesLinksAndRemovesScripts(t *testing.T) {
 	if !strings.Contains(got, "noopener noreferrer") {
 		t.Fatalf("external link protection missing: %s", got)
 	}
+	if !strings.Contains(got, `target="_blank"`) {
+		t.Fatalf("links should open in a new tab: %s", got)
+	}
 }
 
 func TestResolvePublicURLRejectsScriptScheme(t *testing.T) {

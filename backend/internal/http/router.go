@@ -1,7 +1,10 @@
 package http
 
 import (
+	"log"
 	nethttp "net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,11 +16,19 @@ import (
 )
 
 func NewRouter(db *gorm.DB) *gin.Engine {
-	acc := &account.Handler{DB: db}
-	sub := &subscription.Handler{DB: db}
-	ent := &entry.Handler{DB: db}
+	// Wiring: repo (SQL) → service (rules) → handler (HTTP).
+	entryRepo := entry.NewRepo(db)
+	accSvc := account.NewService(account.NewRepo(db))
+	acc := account.NewHandler(accSvc)
+	sub := subscription.NewHandler(subscription.NewService(subscription.NewRepo(db), entryRepo))
+	ent := entry.NewHandler(entry.NewService(entryRepo))
 	r := gin.Default()
-	_ = r.SetTrustedProxies(nil)
+	// ClientIP (used by the rate limiter) reads X-Forwarded-For only from
+	// proxies listed in TRUSTED_PROXIES, e.g. Caddy in production. Otherwise
+	// it uses the TCP peer address, so clients cannot fake their IP.
+	if err := r.SetTrustedProxies(trustedProxies()); err != nil {
+		log.Fatalf("TRUSTED_PROXIES: %v", err)
+	}
 	limit := middleware.NewLimiter()
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(nethttp.StatusOK, gin.H{"status": "ok"}) })
 	api := r.Group("/api")
@@ -25,7 +36,7 @@ func NewRouter(db *gorm.DB) *gin.Engine {
 	api.POST("/auth/register", limit.Middleware("register", 5, time.Hour), acc.Register)
 	api.POST("/auth/login", limit.Middleware("login", 10, time.Minute), acc.Login)
 	protected := api.Group("")
-	protected.Use(middleware.RequireUser(db))
+	protected.Use(middleware.RequireUser(accSvc))
 	protected.GET("/me", acc.Me)
 	protected.POST("/auth/logout", acc.Logout)
 	protected.GET("/discover", sub.Discover)
@@ -39,9 +50,19 @@ func NewRouter(db *gorm.DB) *gin.Engine {
 	protected.DELETE("/subscriptions/:id", sub.DeleteSubscription)
 	protected.POST("/subscriptions/:id/refresh", sub.RefreshSubscription)
 	protected.GET("/entries", ent.ListEntries)
+	protected.GET("/entries/unread-counts", ent.UnreadCounts)
+	protected.GET("/entries/:id", ent.GetEntry)
 	protected.PATCH("/entries/:id/state", ent.UpdateEntryState)
 	protected.POST("/entries/mark-read", ent.MarkRead)
 	protected.POST("/opml/import", sub.ImportOPML)
 	protected.GET("/opml/export", sub.ExportOPML)
 	return r
+}
+
+func trustedProxies() []string {
+	v := os.Getenv("TRUSTED_PROXIES")
+	if v == "" {
+		return nil
+	}
+	return strings.Split(v, ",")
 }

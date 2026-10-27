@@ -51,8 +51,6 @@ CREATE TABLE subscriptions (
   user_id BIGINT UNSIGNED NOT NULL,
   feed_id BIGINT UNSIGNED NOT NULL,
   folder_id BIGINT UNSIGNED NULL,
-  read_through_entry_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  pending_baseline BOOLEAN NOT NULL DEFAULT TRUE,
   created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   UNIQUE KEY uq_subscriptions_user_feed (user_id, feed_id),
   KEY idx_subscriptions_folder (user_id, folder_id),
@@ -79,19 +77,22 @@ CREATE TABLE entries (
   CONSTRAINT fk_entries_feed FOREIGN KEY (feed_id) REFERENCES feeds(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE entry_states (
+-- Fan-out on write: one row per (subscriber, entry), created when the entry is
+-- delivered to that user. A row's existence means "this entry is in my list".
+CREATE TABLE user_entries (
   user_id BIGINT UNSIGNED NOT NULL,
   entry_id BIGINT UNSIGNED NOT NULL,
-  read_override TINYINT NULL,
+  read_at DATETIME(6) NULL,
   starred_at DATETIME(6) NULL,
   PRIMARY KEY (user_id, entry_id),
-  KEY idx_entry_states_starred (user_id, starred_at),
-  CONSTRAINT fk_entry_states_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_entry_states_entry FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
+  KEY idx_user_entries_entry (entry_id),
+  KEY idx_user_entries_starred (user_id, starred_at),
+  CONSTRAINT fk_user_entries_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_user_entries_entry FOREIGN KEY (entry_id) REFERENCES entries(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- +goose Down
-DROP TABLE entry_states;
+DROP TABLE user_entries;
 DROP TABLE entries;
 DROP TABLE subscriptions;
 DROP TABLE folders;

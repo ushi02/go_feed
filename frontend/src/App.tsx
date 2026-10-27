@@ -4,9 +4,12 @@ type User = { id: number; username: string }
 type Folder = { id: number; name: string }
 type Feed = { id: number; title: string; url: string; last_error: string; last_fetched_at: string | null }
 type Subscription = { id: number; feed_id: number; folder_id: number | null; feed: Feed }
-type Entry = { id: number; feed_id: number; feed_title: string; title: string; url: string; content: string; sort_at: string; read: boolean; starred_at: string | null }
+type Entry = { id: number; feed_id: number; feed_title: string; title: string; url: string; sort_at: string; read: boolean; starred_at: string | null }
 type Candidate = { url: string; title: string }
 type Filter = 'all' | 'unread' | 'starred'
+
+// feedState changes whenever the Worker finishes a fetch, successful or not.
+const feedState = (s: Subscription) => `${s.feed.last_fetched_at}|${s.feed.last_error}`
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, {
@@ -38,6 +41,10 @@ export default function App() {
   const [folderID, setFolderID] = useState<number | null>(null)
   const [subID, setSubID] = useState<number | null>(null)
   const [selected, setSelected] = useState<Entry | null>(null)
+  const [body, setBody] = useState<{ id: number; content: string } | null>(null)
+  const [unread, setUnread] = useState<Record<string, number>>({})
+  // Subscriptions refreshed by hand: id → feed state at click time, and when to stop waiting.
+  const [refreshing, setRefreshing] = useState<Record<number, { state: string; until: number }>>({})
   const [feedInput, setFeedInput] = useState('')
   const [newFolder, setNewFolder] = useState('')
   const [candidates, setCandidates] = useState<Candidate[]>([])
@@ -54,6 +61,10 @@ export default function App() {
     setFolders(f.folders || [])
     setSubs(s.subscriptions || [])
   }, [])
+  const refreshUnread = useCallback(async () => {
+    const data = await request<{ counts: Record<string, number> }>('/entries/unread-counts')
+    setUnread(data.counts || {})
+  }, [])
   const loadEntries = useCallback(async (next = '') => {
     const p = new URLSearchParams({ filter, limit: '20' })
     if (folderID !== null) p.set('folder_id', String(folderID))
@@ -62,7 +73,8 @@ export default function App() {
     const data = await request<{ entries: Entry[]; next_cursor: string }>(`/entries?${p}`)
     setEntries(old => next ? [...old, ...(data.entries || [])] : (data.entries || []))
     setCursor(data.next_cursor || '')
-  }, [filter, folderID, subID])
+    if (!next) await refreshUnread()
+  }, [filter, folderID, subID, refreshUnread])
 
   useEffect(() => {
     request<User>('/me').then(setUser).catch(() => {}).finally(() => setReady(true))
@@ -76,12 +88,20 @@ export default function App() {
     loadEntries().catch(report)
   }, [user, loadEntries])
   useEffect(() => {
-    if (!user || !subs.some(s => !s.feed.last_fetched_at && !s.feed.last_error)) return
+    const done = Object.keys(refreshing).map(Number).filter(id => {
+      const s = subs.find(x => x.id === id)
+      return !s || feedState(s) !== refreshing[id].state || Date.now() > refreshing[id].until
+    })
+    if (done.length) setRefreshing(r => Object.fromEntries(Object.entries(r).filter(([id]) => !done.includes(Number(id)))))
+  }, [subs, refreshing])
+  useEffect(() => {
+    const waiting = Object.keys(refreshing).length > 0 || subs.some(s => !s.feed.last_fetched_at && !s.feed.last_error)
+    if (!user || !waiting) return
     const timer = window.setInterval(() => {
       Promise.all([refreshNav(), loadEntries()]).catch(report)
     }, 2500)
     return () => window.clearInterval(timer)
-  }, [user, subs, refreshNav, loadEntries])
+  }, [user, subs, refreshing, refreshNav, loadEntries])
 
   async function authenticate(e: React.FormEvent) {
     e.preventDefault(); setBusy(true); setError('')
@@ -126,14 +146,19 @@ export default function App() {
     try { await request(`/subscriptions/${sub.id}`, { method: 'PATCH', body: JSON.stringify({ folder_id: target }) }); await refreshNav(); await loadEntries() } catch (e) { report(e) }
   }
   async function removeSubscription(id: number) {
-    if (!window.confirm('取消这个订阅？该订阅的已读和收藏状态也会删除。')) return
+    if (!window.confirm('取消这个订阅？收藏的文章会保留在「我的收藏」里。')) return
     try { await request(`/subscriptions/${id}`, { method: 'DELETE' }); if (subID === id) setSubID(null); await refreshNav(); await loadEntries() } catch (e) { report(e) }
   }
   async function refreshSubscription(id: number) {
-    try { await request(`/subscriptions/${id}/refresh`, { method: 'POST' }); setNotice('已安排刷新。') } catch (e) { report(e) }
+    const sub = subs.find(s => s.id === id)
+    try {
+      await request(`/subscriptions/${id}/refresh`, { method: 'POST' }); setNotice('已安排刷新，新文章会自动出现。')
+      if (sub) setRefreshing(r => ({ ...r, [id]: { state: feedState(sub), until: Date.now() + 60_000 } }))
+    } catch (e) { report(e) }
   }
   async function openEntry(entry: Entry) {
     setSelected(entry)
+    request<{ id: number; content: string }>(`/entries/${entry.id}`).then(d => setBody({ id: d.id, content: d.content })).catch(report)
     if (!entry.read) await changeState(entry, { read: true })
   }
   async function changeState(entry: Entry, patch: { read?: boolean; starred?: boolean }) {
@@ -142,6 +167,7 @@ export default function App() {
       const updated = { ...entry, read: patch.read ?? entry.read, starred_at: patch.starred === undefined ? entry.starred_at : (patch.starred ? new Date().toISOString() : null) }
       setEntries(old => old.map(x => x.id === entry.id ? updated : x))
       setSelected(old => old?.id === entry.id ? updated : old)
+      if (patch.read !== undefined) await refreshUnread()
     } catch (e) { report(e) }
   }
   async function markRead() {
@@ -173,11 +199,12 @@ export default function App() {
   const activeTitle = subID !== null ? subs.find(s => s.id === subID)?.feed.title || '订阅' : folderID !== null ? folders.find(f => f.id === folderID)?.name || '文件夹' : '全部文章'
   const pendingCount = subs.filter(s => !s.feed.last_fetched_at && !s.feed.last_error).length
   const failedCount = subs.filter(s => s.feed.last_error).length
+  const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
   return <div className="shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">◉</span><div><strong>Go Feed</strong><small>读你想读的</small></div></div>
-      <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFolderID(null); setSubID(null) }}>全部文章</button>
-        <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>未读文章</button>
+      <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>全部文章</button>
+        <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>未读文章{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>
         <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>我的收藏</button></div>
       <div className="nav-heading heading-row"><span>文件夹</span><button onClick={() => setShowManage(true)}>管理</button></div>
       <div className="nav-group">{folders.map(f => <button key={f.id} className={folderID === f.id ? 'active' : ''} onClick={() => { setFolderID(f.id); setSubID(null) }}>{f.name}</button>)}</div>
@@ -185,6 +212,7 @@ export default function App() {
       <div className="nav-heading">订阅源</div>
       <div className="nav-group feeds">{subs.map(s => <div className="feed-row" key={s.id}>
         <button className={subID === s.id ? 'active' : ''} onClick={() => { setSubID(s.id); setFolderID(null) }}>{s.feed.title || s.feed.url}</button>
+        {unread[s.id] > 0 && <span className="count">{unread[s.id]}</span>}
         <button className="icon" title="手动刷新" onClick={() => refreshSubscription(s.id)}>↻</button>
         <button className="icon" title="取消订阅" onClick={() => removeSubscription(s.id)}>×</button>
       </div>)}</div>
@@ -203,7 +231,7 @@ export default function App() {
       </article>)}{entries.length === 0 && <div className="empty">这里还没有文章。添加订阅后，Worker 会自动抓取。</div>}</div>
       {cursor && <button className="load-more" onClick={() => loadEntries(cursor).catch(report)}>加载更多</button>}
     </main>
-    {selected && <div className="reader-backdrop" onClick={() => setSelected(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSelected(null)}>×</button><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString('zh-CN')}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">阅读原文 ↗</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? '标为未读' : '标为已读'}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? '取消收藏' : '收藏'}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: selected.content || '<p>这个订阅源没有提供正文，请点击“阅读原文”。</p>' }} /></section></div>}
+    {selected && <div className="reader-backdrop" onClick={() => setSelected(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSelected(null)}>×</button><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString('zh-CN')}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">阅读原文 ↗</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? '标为未读' : '标为已读'}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? '取消收藏' : '收藏'}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: body?.id !== selected.id ? '<p>正在加载…</p>' : body.content || '<p>这个订阅源没有提供正文，请点击“阅读原文”。</p>' }} /></section></div>}
     {showManage && <div className="reader-backdrop" onClick={() => setShowManage(false)}><section className="reader manage-panel" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setShowManage(false)}>×</button><span className="eyebrow">ORGANIZE</span><h1>管理订阅</h1><h2>文件夹</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>重命名</button><button onClick={() => deleteFolder(f)}>删除</button></div>)}<h2>订阅源</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">未分类</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>取消订阅</button></div>)}</section></div>}
   </div>
 }

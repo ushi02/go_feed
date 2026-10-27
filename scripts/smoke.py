@@ -9,7 +9,7 @@ import urllib.request
 import uuid
 
 BASE = os.environ.get("API_URL", "http://127.0.0.1:18080")
-ORIGIN = os.environ.get("APP_ORIGIN", "http://localhost:15173")
+ORIGIN = BASE  # the frontend is served by the API, so writes are same-origin
 
 
 def client():
@@ -63,10 +63,11 @@ def main():
         assert second_sub["feed_id"] == feed_id
         _, page = call(second, "GET", "/api/entries?limit=20&filter=unread")
         assert len(page["entries"]) == 20 and page["next_cursor"] == "", page
-        _, first_page = call(second, "GET", "/api/entries?limit=20")
-        assert len(first_page["entries"]) == 20 and first_page["next_cursor"]
-        _, next_page = call(second, "GET", "/api/entries?limit=20&cursor=" + first_page["next_cursor"])
-        assert len(next_page["entries"]) == 5
+        # Fan-out on write: a new subscriber gets only the 20 newest entries, not all 25.
+        _, first_page = call(second, "GET", "/api/entries?limit=15")
+        assert len(first_page["entries"]) == 15 and first_page["next_cursor"]
+        _, next_page = call(second, "GET", "/api/entries?limit=15&cursor=" + first_page["next_cursor"])
+        assert len(next_page["entries"]) == 5 and next_page["next_cursor"] == "", next_page
         call(second, "POST", "/api/entries/mark-read", {})
         _, unread = call(second, "GET", "/api/entries?filter=unread")
         assert unread["entries"] == [], unread

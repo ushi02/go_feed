@@ -46,5 +46,7 @@ func CleanHTML(content, baseURL string) string {
 	_ = html.Render(&buf, root)
 	policy := bluemonday.UGCPolicy()
 	policy.AllowAttrs("rel").OnElements("a")
+	// Feed links point to other sites; open them in a new tab instead of leaving the reader.
+	policy.AddTargetBlankToFullyQualifiedLinks(true)
 	return policy.Sanitize(buf.String())
 }

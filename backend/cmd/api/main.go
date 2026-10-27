@@ -20,7 +20,12 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	if err := apihttp.NewRouter(database).Run(":" + port); err != nil {
+	router := apihttp.NewRouter(database)
+	// STATIC_DIR points at the built frontend; empty in local Vite development.
+	if dir := os.Getenv("STATIC_DIR"); dir != "" {
+		apihttp.ServeFrontend(router, dir)
+	}
+	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("run server: %v", err)
 	}
 }

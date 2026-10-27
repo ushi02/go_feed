@@ -4,8 +4,8 @@
 
 ## 当前状态与目标
 
-- 现状：Go 代码已按模块拆到 `backend/internal/`，但还没有拆 service/repo 分层；已读状态仍使用水位线模型（`read_through_entry_id`）。
-- 目标：按下方「目标结构」重构，并改用写入扩散模型。重构完成前，两种结构会同时存在，**以本文件的目标为准**。
+- 现状：目标结构的 account、subscription、entry、worker 已完成（handler/service/repo 分层 + 写入扩散）；search、chat、博客池还没做。
+- 目标：按下方「目标结构」继续实现剩下的模块，**以本文件为准**。
 - 架构讲解（给作者复习用）：`docs/learning/project-overview.html`
 
 ## 技术栈（已定，不要替换）
@@ -57,7 +57,7 @@ docs/
 ## 常用命令
 
 ```sh
-docker compose up --build        # 本地启动全部服务：前端 :15173，API :18080，MySQL :3308
+docker compose up --build        # 本地启动全部服务：页面和 API 都在 :18080（Go 提供前端），MySQL :3308
 cd backend && go test -race ./...   # 测试（集成测试需要 Docker；-short 跳过）
 cd backend && go vet ./...
 ```

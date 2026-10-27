@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"log"
 	"strings"
 	"time"
@@ -14,19 +13,22 @@ import (
 	"github.com/ushi02/go_feed/backend/internal/fetcher"
 	"github.com/ushi02/go_feed/backend/internal/subscription"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
-type Worker struct{ DB *gorm.DB }
+type Worker struct {
+	repo    *Repo
+	entries *entry.Repo
+}
 
-func NewWorker(db *gorm.DB) *Worker { return &Worker{DB: db} }
+func NewWorker(db *gorm.DB) *Worker { return &Worker{repo: NewRepo(db), entries: entry.NewRepo(db)} }
 
 func (w *Worker) Run(ctx context.Context) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		for i := 0; i < 10; i++ {
-			feed, token, err := w.claim(ctx)
+			token := randomToken()
+			feed, err := w.repo.Claim(ctx, token, 2*time.Minute)
 			if err != nil {
 				log.Printf("claim feed: %v", err)
 				break
@@ -52,33 +54,6 @@ func randomToken() string {
 	return hex.EncodeToString(b)
 }
 
-func (w *Worker) claim(ctx context.Context) (*subscription.Feed, string, error) {
-	var feed subscription.Feed
-	token := randomToken()
-	err := w.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		result := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
-			Where("next_fetch_at <= UTC_TIMESTAMP(6) AND (lease_until IS NULL OR lease_until < UTC_TIMESTAMP(6))").
-			Where("EXISTS (SELECT 1 FROM subscriptions WHERE subscriptions.feed_id = feeds.id)").
-			Order("next_fetch_at, id").Limit(1).Find(&feed)
-		if result.Error != nil {
-			return result.Error
-		}
-		if result.RowsAffected == 0 {
-			return gorm.ErrRecordNotFound
-		}
-		return tx.Model(&subscription.Feed{}).Where("id = ?", feed.ID).Updates(map[string]any{
-			"lease_until": time.Now().UTC().Add(2 * time.Minute), "lease_token": token,
-		}).Error
-	})
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, "", nil
-	}
-	if err != nil {
-		return nil, "", err
-	}
-	return &feed, token, nil
-}
-
 func (w *Worker) process(ctx context.Context, feed subscription.Feed, token string) error {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
@@ -87,56 +62,24 @@ func (w *Worker) process(ctx context.Context, feed subscription.Feed, token stri
 		backoff := time.Duration(1<<min(feed.FailureCount, 5)) * time.Hour
 		updateCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
 		defer stop()
-		_ = w.DB.WithContext(updateCtx).Model(&subscription.Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(map[string]any{
-			"failure_count": feed.FailureCount + 1, "last_error": truncate(err.Error(), 1024),
-			"next_fetch_at": time.Now().UTC().Add(backoff), "lease_until": nil, "lease_token": nil,
-		}).Error
+		_ = w.repo.RecordFailure(updateCtx, feed, token, truncate(err.Error(), 1024), time.Now().UTC().Add(backoff))
 		return err
 	}
-	return w.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		var current subscription.Feed
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ? AND lease_token = ?", feed.ID, token).First(&current).Error; err != nil {
+	return w.repo.Transaction(ctx, func(tx *gorm.DB) error {
+		feeds, entries := w.repo.WithTx(tx), w.entries.WithTx(tx)
+		// Same row lock as subscribing, so a new subscriber is either seen here or sees us.
+		current, err := feeds.LockLeased(ctx, feed.ID, token)
+		if err != nil {
 			return err
 		}
+		// Follow a permanent move unless another feed already has the new URL.
 		if result.FinalURL != "" && result.FinalURL != current.URL {
-			newHash := fetcher.Hash(result.FinalURL)
-			var existing subscription.Feed
-			err := tx.Where("url_hash = ?", newHash).First(&existing).Error
-			if err == nil && existing.ID != current.ID && !current.Initialized {
-				var subs []subscription.Subscription
-				if err := tx.Where("feed_id = ?", current.ID).Find(&subs).Error; err != nil {
-					return err
-				}
-				for _, sub := range subs {
-					var duplicate int64
-					if err := tx.Model(&subscription.Subscription{}).Where("user_id = ? AND feed_id = ?", sub.UserID, existing.ID).Count(&duplicate).Error; err != nil {
-						return err
-					}
-					if duplicate != 0 {
-						if err := tx.Delete(&sub).Error; err != nil {
-							return err
-						}
-						continue
-					}
-					updates := map[string]any{"feed_id": existing.ID, "pending_baseline": !existing.Initialized}
-					if existing.Initialized {
-						baseline, err := subscription.BaselineID(tx, existing.ID)
-						if err != nil {
-							return err
-						}
-						updates["read_through_entry_id"] = baseline
-					}
-					if err := tx.Model(&sub).Updates(updates).Error; err != nil {
-						return err
-					}
-				}
-				return tx.Delete(&current).Error
-			}
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			taken, err := feeds.URLTaken(ctx, result.FinalURL)
+			if err != nil {
 				return err
 			}
-			if err != nil {
-				if err := tx.Model(&current).Updates(map[string]any{"url": result.FinalURL, "url_hash": newHash}).Error; err != nil {
+			if !taken {
+				if err := feeds.UpdateURL(ctx, feed.ID, result.FinalURL); err != nil {
 					return err
 				}
 				current.URL = result.FinalURL
@@ -144,21 +87,28 @@ func (w *Worker) process(ctx context.Context, feed subscription.Feed, token stri
 		}
 		now := time.Now().UTC()
 		if !result.NotModified {
+			var added []uint64
 			for _, item := range result.Feed.Items {
 				e := entryFromItem(feed.ID, current.URL, item, now)
 				if e == nil {
 					continue
 				}
-				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(e).Error; err != nil {
+				inserted, err := entries.Insert(ctx, e)
+				if err != nil {
 					return err
 				}
+				if inserted {
+					added = append(added, e.ID)
+				}
 			}
-			baseline, err := subscription.BaselineID(tx, feed.ID)
+			// First fetch: each subscriber starts with the most recent entries, not the whole archive.
+			// Later fetches: every new entry goes to every subscriber.
+			if !current.Initialized {
+				err = entries.Backfill(ctx, feed.ID, nil)
+			} else {
+				err = entries.Deliver(ctx, feed.ID, added)
+			}
 			if err != nil {
-				return err
-			}
-			if err := tx.Model(&subscription.Subscription{}).Where("feed_id = ? AND pending_baseline = 1", feed.ID).
-				Updates(map[string]any{"read_through_entry_id": baseline, "pending_baseline": false}).Error; err != nil {
 				return err
 			}
 		}
@@ -174,7 +124,7 @@ func (w *Worker) process(ctx context.Context, feed subscription.Feed, token stri
 		if result.Modified != "" {
 			updates["last_modified"] = truncate(result.Modified, 512)
 		}
-		return tx.Model(&subscription.Feed{}).Where("id = ? AND lease_token = ?", feed.ID, token).Updates(updates).Error
+		return feeds.Finish(ctx, feed.ID, token, updates)
 	})
 }
 
