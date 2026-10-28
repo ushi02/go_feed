@@ -24,6 +24,7 @@ backend/
   internal/
     <模块>/               account、subscription、entry、search、chat
       entity.go handler.go service.go repo.go
+    llm/                  LLMClient 接口、DeepSeek 实现、测试用的 Fake
     fetcher/              抓取 RSS、Discover、HTML 清理、SSRF 防护
     worker/               调度、有界并发、按域名限流
     middleware/           登录校验、Origin 校验、限流
