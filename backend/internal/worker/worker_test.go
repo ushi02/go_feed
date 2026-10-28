@@ -52,3 +52,15 @@ func TestIsDead(t *testing.T) {
 		}
 	}
 }
+
+func TestSummaryIsPlainTextFromDescriptionOrContent(t *testing.T) {
+	now := time.Now()
+	withDesc := &gofeed.Item{GUID: "a", Description: "<p>&ldquo;摘要&rdquo;</p>", Content: "<p>正文</p>"}
+	if e := entryFromItem(1, "https://example.com/feed", withDesc, now); e.Summary != "“摘要”" {
+		t.Errorf("summary = %q, want plain description", e.Summary)
+	}
+	contentOnly := &gofeed.Item{GUID: "b", Content: "<p>只有正文</p>"}
+	if e := entryFromItem(1, "https://example.com/feed", contentOnly, now); e.Summary != "只有正文" {
+		t.Errorf("summary = %q, want plain content", e.Summary)
+	}
+}

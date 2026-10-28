@@ -6,6 +6,7 @@ type Feed = { id: number; title: string; url: string; last_error: string; last_f
 type Subscription = { id: number; feed_id: number; folder_id: number | null; feed: Feed }
 type Entry = { id: number; feed_id: number; feed_title: string; title: string; url: string; sort_at: string; read: boolean; starred_at: string | null }
 type Candidate = { url: string; title: string }
+type SearchResult = { entry_id: number; title: string; url: string; summary: string; sort_at: string; feed_id: number; feed_title: string; feed_url: string; subscribed: boolean }
 type Filter = 'all' | 'unread' | 'starred'
 
 // feedState changes whenever the Worker finishes a fetch, successful or not.
@@ -51,6 +52,8 @@ export default function App() {
   const [addFolderID, setAddFolderID] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [showManage, setShowManage] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [search, setSearch] = useState<{ q: string; results: SearchResult[] } | null>(null)
 
   const report = (e: unknown) => { setError(e instanceof Error ? e.message : String(e)); setNotice('') }
   const refreshNav = useCallback(async () => {
@@ -127,7 +130,19 @@ export default function App() {
       await request('/subscriptions', { method: 'POST', body: JSON.stringify({ url, folder_id: addFolderID }) })
       setFeedInput(''); setCandidates([]); setNotice('已添加订阅，Worker 将很快抓取文章。')
       await refreshNav(); await loadEntries()
-    } catch (e) { report(e) }
+      return true
+    } catch (e) { report(e); return false }
+  }
+  async function runSearch(e: React.FormEvent) {
+    e.preventDefault(); setBusy(true); setError('')
+    const q = searchInput.trim()
+    try {
+      const data = await request<{ results: SearchResult[] }>(`/search?q=${encodeURIComponent(q)}`)
+      setSearch({ q, results: data.results })
+    } catch (e) { report(e) } finally { setBusy(false) }
+  }
+  async function subscribeFromSearch(r: SearchResult) {
+    if (await addSubscription(r.feed_url)) setSearch(s => s && { ...s, results: s.results.map(x => x.feed_id === r.feed_id ? { ...x, subscribed: true } : x) })
   }
   async function createFolder(e: React.FormEvent) {
     e.preventDefault()
@@ -203,6 +218,7 @@ export default function App() {
   return <div className="shell">
     <aside className="sidebar">
       <div className="brand"><span className="brand-mark">◉</span><div><strong>Go Feed</strong><small>读你想读的</small></div></div>
+      <form className="search-form" onSubmit={runSearch}><input type="search" placeholder="搜索中文独立博客…" value={searchInput} onChange={e => setSearchInput(e.target.value)} required /></form>
       <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>全部文章</button>
         <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>未读文章{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>
         <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>我的收藏</button></div>
@@ -233,6 +249,9 @@ export default function App() {
       {cursor && <button className="load-more" onClick={() => loadEntries(cursor).catch(report)}>加载更多</button>}
     </main>
     {selected && <div className="reader-backdrop" onClick={() => setSelected(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSelected(null)}>×</button><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString('zh-CN')}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">阅读原文 ↗</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? '标为未读' : '标为已读'}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? '取消收藏' : '收藏'}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: body?.id !== selected.id ? '<p>正在加载…</p>' : body.content || '<p>这个订阅源没有提供正文，请点击“阅读原文”。</p>' }} /></section></div>}
+    {search && <div className="reader-backdrop" onClick={() => setSearch(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSearch(null)}>×</button><span className="eyebrow">SEARCH</span><h1>「{search.q}」</h1><p className="search-hint">在博客池和你订阅的文章里找到 {search.results.length} 篇，按相关度排序。</p>
+      {search.results.map(r => <article key={r.entry_id} className="search-result"><span className="entry-meta">{r.feed_title || r.feed_url} · {new Date(r.sort_at).toLocaleDateString('zh-CN')}</span><h2>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title || '无标题'}</a> : r.title || '无标题'}</h2>{r.summary && <p>{r.summary.length > 140 ? r.summary.slice(0, 140) + '…' : r.summary}</p>}{r.subscribed ? <span className="search-subscribed">已订阅</span> : <button className="outline" onClick={() => subscribeFromSearch(r)}>订阅这个博客</button>}</article>)}
+      {search.results.length === 0 && <div className="empty">没有找到相关文章。试试换个词，或者用空格分开多个词。</div>}</section></div>}
     {showManage && <div className="reader-backdrop" onClick={() => setShowManage(false)}><section className="reader manage-panel" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setShowManage(false)}>×</button><span className="eyebrow">ORGANIZE</span><h1>管理订阅</h1><h2>文件夹</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>重命名</button><button onClick={() => deleteFolder(f)}>删除</button></div>)}<h2>订阅源</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">未分类</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>取消订阅</button></div>)}</section></div>}
   </div>
 }

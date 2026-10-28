@@ -104,7 +104,7 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
       <a href="#layers">四层文件</a><a href="#data">数据表</a><a href="#flow">一次点击的旅程</a>
       <a href="#auth">Session 与 JWT</a><a href="#disk">硬盘</a><a href="#storage">存储模型</a><a href="#deploy">本地与生产</a><a href="#tests">测试安全网</a>
     </nav>
-    <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，目录、四层文件和写入扩散模型都已完成（M1 第 3 步）；博客池、搜索和 chatbot 还没做。</div>
+    <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，目录、四层文件和写入扩散模型都已完成（M1 第 3 步）；博客池、Worker 并发抓取和全文搜索也已完成（M2 第 1～4 步，2026-10-28）；chatbot 还没做。全文搜索的原理另见 <a href="full-text-search.html">全文搜索讲解</a>。</div>
   </header>
 
   <section class="card" id="analogy">
@@ -125,20 +125,20 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
     <p>下面每个彩色方框都是一个<strong>独立运行的程序</strong>。<code>docker compose up</code> 会用 Docker 把它们一起启动，每个程序跑在自己的「容器」里。容器可以理解成一个隔离的小盒子，里面装好了这个程序需要的一切。</p>
     <div class="diagram">
       <div class="row"><div class="box ext"><strong>你的浏览器</strong><small>Chrome / Safari</small></div></div>
-      <div class="arrow"><b>↓</b>① 打开网页</div>
+      <div class="arrow"><b>↓</b>第 1 步：打开网页</div>
       <div class="row"><div class="box blue"><strong>前端 · React</strong><small>frontend/ 里的代码</small></div></div>
-      <div class="arrow"><b>↓</b>② 请求 /api/...</div>
+      <div class="arrow"><b>↓</b>第 2 步：请求 /api/...</div>
       <div class="row">
         <div class="box green"><strong>API 服务 · Go</strong><small>backend/cmd/api</small></div>
         <div class="arrow">→ 问问题 →</div>
         <div class="box purple ext"><strong>DeepSeek</strong><small>chatbot，之后加</small></div>
       </div>
-      <div class="arrow"><b>↓</b>③ 读写数据</div>
+      <div class="arrow"><b>↓</b>第 3 步：读写数据</div>
       <div class="row"><div class="box orange"><strong>MySQL 数据库</strong><small>数据存在硬盘上</small></div></div>
-      <div class="arrow"><b>↑</b>⑤ 存入新文章</div>
+      <div class="arrow"><b>↑</b>第 5 步：存入新文章</div>
       <div class="row">
         <div class="box green"><strong>Worker · Go</strong><small>backend/cmd/worker</small></div>
-        <div class="arrow">→ ④ 定时抓 RSS →</div>
+        <div class="arrow">→ 第 4 步：定时抓 RSS →</div>
         <div class="box ext"><strong>各个博客网站</strong><small>阮一峰、Go Blog……</small></div>
       </div>
     </div>

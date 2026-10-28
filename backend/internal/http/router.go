@@ -11,6 +11,7 @@ import (
 	"github.com/ushi02/go_feed/backend/internal/account"
 	"github.com/ushi02/go_feed/backend/internal/entry"
 	"github.com/ushi02/go_feed/backend/internal/middleware"
+	"github.com/ushi02/go_feed/backend/internal/search"
 	"github.com/ushi02/go_feed/backend/internal/subscription"
 	"gorm.io/gorm"
 )
@@ -22,6 +23,7 @@ func NewRouter(db *gorm.DB) *gin.Engine {
 	acc := account.NewHandler(accSvc)
 	sub := subscription.NewHandler(subscription.NewService(subscription.NewRepo(db), entryRepo))
 	ent := entry.NewHandler(entry.NewService(entryRepo))
+	srch := search.NewHandler(search.NewService(search.NewRepo(db)))
 	r := gin.Default()
 	// ClientIP (used by the rate limiter) reads X-Forwarded-For only from
 	// proxies listed in TRUSTED_PROXIES, e.g. Caddy in production. Otherwise
@@ -54,6 +56,7 @@ func NewRouter(db *gorm.DB) *gin.Engine {
 	protected.GET("/entries/:id", ent.GetEntry)
 	protected.PATCH("/entries/:id/state", ent.UpdateEntryState)
 	protected.POST("/entries/mark-read", ent.MarkRead)
+	protected.GET("/search", srch.Search)
 	protected.POST("/opml/import", sub.ImportOPML)
 	protected.GET("/opml/export", sub.ExportOPML)
 	return r

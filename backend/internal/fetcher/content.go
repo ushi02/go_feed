@@ -50,3 +50,40 @@ func CleanHTML(content, baseURL string) string {
 	policy.AddTargetBlankToFullyQualifiedLinks(true)
 	return policy.Sanitize(buf.String())
 }
+
+// PlainText extracts the visible text of feed HTML (entities decoded, script
+// and style dropped, whitespace collapsed) and cuts it to limit runes. Summaries
+// are stored this way so the search index sees words, not markup.
+func PlainText(content string, limit int) string {
+	z := html.NewTokenizer(strings.NewReader(content))
+	var b strings.Builder
+	skip := 0               // depth inside <script> or <style>
+	for b.Len() < limit*4 { // UTF-8 runes are at most 4 bytes
+		switch z.Next() {
+		case html.ErrorToken:
+			return cut(strings.Join(strings.Fields(b.String()), " "), limit)
+		case html.StartTagToken:
+			if name, _ := z.TagName(); string(name) == "script" || string(name) == "style" {
+				skip++
+			}
+		case html.EndTagToken:
+			if name, _ := z.TagName(); (string(name) == "script" || string(name) == "style") && skip > 0 {
+				skip--
+			}
+		case html.TextToken:
+			if skip == 0 {
+				b.Write(z.Text())
+				b.WriteByte(' ')
+			}
+		}
+	}
+	return cut(strings.Join(strings.Fields(b.String()), " "), limit)
+}
+
+func cut(s string, limit int) string {
+	r := []rune(s)
+	if len(r) > limit {
+		return string(r[:limit])
+	}
+	return s
+}

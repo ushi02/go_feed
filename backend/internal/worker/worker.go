@@ -35,6 +35,8 @@ const (
 	// A feed is judged dead after this many failures in a row. With the backoff
 	// below that is about a week, so a blog that is down for a weekend survives.
 	maxFailures = 10
+	// Summaries feed the search index (title + summary), so keep them short.
+	summaryRunes = 500
 )
 
 // Run fetches due feeds round after round until ctx is cancelled. It returns
@@ -254,8 +256,14 @@ func entryFromItem(feedID uint64, feedURL string, item *gofeed.Item, now time.Ti
 	if content == "" {
 		content = item.Description
 	}
+	// The summary is plain text for the search index; feeds without a
+	// description get the start of the article instead.
+	summary := item.Description
+	if summary == "" {
+		summary = content
+	}
 	return &entry.Entry{FeedID: feedID, GUIDHash: fetcher.Hash(key), Title: truncate(item.Title, 512), URL: link,
-		Content: fetcher.CleanHTML(content, base), Summary: truncate(item.Description, 4000), PublishedAt: published, SortAt: sortAt, CreatedAt: now}
+		Content: fetcher.CleanHTML(content, base), Summary: fetcher.PlainText(summary, summaryRunes), PublishedAt: published, SortAt: sortAt, CreatedAt: now}
 }
 
 func truncate(s string, limit int) string {
