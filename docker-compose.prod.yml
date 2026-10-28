@@ -1,0 +1,109 @@
+# Production: docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+# Only Caddy is reachable from outside (80/443). MySQL and the API have no
+# published ports; they are reached over the internal network only.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates; losing them means re-issuing and hitting rate limits
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [app]
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_DATABASE: go_feed
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+    healthcheck:
+      # 127.0.0.1 forces TCP: during first-time init MySQL runs a temporary
+      # socket-only server, which a socket ping would wrongly report as ready.
+      # MYSQL_PWD keeps the password out of the process list.
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks: [app]
+
+  api:
+    build: .
+    restart: unless-stopped
+    environment: &app_env
+      MYSQL_DSN: ${MYSQL_USER}:${MYSQL_PASSWORD}@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC
+      GIN_MODE: release
+      COOKIE_SECURE: "1"
+      # Only Caddy can reach the API, so trusting this network's X-Forwarded-For is safe.
+      TRUSTED_PROXIES: 172.30.0.0/24
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [app]
+
+  worker:
+    build: .
+    command: ["/worker"]
+    restart: unless-stopped
+    environment: *app_env
+    depends_on:
+      api:
+        condition: service_healthy # the API runs the migrations
+    networks: [app]
+
+  # Daily dump to ./backups on the host, keeping 7 days. --single-transaction
+  # gives a consistent InnoDB snapshot without locking tables.
+  backup:
+    image: mysql:8.0
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          f=/backups/go_feed-$$(date +%F).sql.gz
+          if MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqldump -h mysql -uroot --single-transaction --databases go_feed | gzip > $$f.tmp; then
+            mv $$f.tmp $$f && echo "backup ok: $$f"
+          else
+            rm -f $$f.tmp && echo "backup FAILED"
+          fi
+          find /backups -name 'go_feed-*.sql.gz' -mtime +7 -delete
+          sleep 86400
+        done
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      api:
+        condition: service_healthy # tables exist, so the first dump is not empty
+    networks: [app]
+
+networks:
+  app:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:

@@ -6,3 +6,4 @@ frontend/dist
 **/*.out
 .env
 .env.*
+backups

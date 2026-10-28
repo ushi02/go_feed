@@ -208,3 +208,23 @@ Worker 启动时和之后每 24 小时清理一次：没人订阅的源，只保
 
 **Q：密钥怎么管理？测试会不会调用真实 API？**
 密钥只从环境变量 `DEEPSEEK_API_KEY` 读取，不写进代码。出错时的错误信息只包含状态码和响应内容，测试专门检查了错误信息里不会出现密钥。有一个调用真实 API 的测试，但只有设置了 `DEEPSEEK_API_KEY` 才会运行，CI 和平时的 `go test` 都会跳过它。
+
+## M4-1 生产环境部署配置
+
+**Q：线上环境的结构是什么样的？**
+一台 VPS 上用 Docker Compose 跑 5 个容器：Caddy、api、worker、MySQL、backup。只有 Caddy 发布了 80/443 端口；api 和 MySQL 没有对外端口，只能在 Compose 的内部网络里访问。浏览器 → Caddy（HTTPS）→ api:8080（HTTP）。配置在 `docker-compose.prod.yml`，和开发用的 `docker-compose.yml` 分开，读起来不用在两个文件之间来回对照。
+
+**Q：HTTPS 证书怎么来的？**
+Caddy 会自动向 Let's Encrypt 申请证书并续期，配置只有 `{$DOMAIN} { reverse_proxy api:8080 }` 几行，HTTP 也会自动 308 跳转到 HTTPS。证书存在 `caddy_data` 卷里，容器重建不会丢；如果丢了，每次启动都重新申请，很快会碰到 Let's Encrypt 的频率限制。
+
+**Q：经过 Caddy 以后，限流还能拿到用户的真实 IP 吗？**
+api 收到的 TCP 连接来自 Caddy，所以要读 Caddy 加上的 `X-Forwarded-For`。但这个头部用户也能伪造，所以只信任来自 Caddy 的那一段：Compose 网络固定为 `172.30.0.0/24`，`TRUSTED_PROXIES` 设成这个网段。api 没有对外端口，能连进来的只有这个网络里的容器。另外 Caddy 默认会丢掉客户端自己带的 `X-Forwarded-For`。本地验证时发了 `X-Forwarded-For: 1.2.3.4`，日志里的 IP 不是它。
+
+**Q：生产环境还改了哪些设置？**
+`COOKIE_SECURE=1`：会话 cookie 带上 `Secure`，只在 HTTPS 下发送（本地验证时响应里是 `HttpOnly; Secure; SameSite=Lax`）。`GIN_MODE=release`：关掉调试日志。数据库不用 root，而是用 `MYSQL_USER` 创建的普通账号。所有密码都放在服务器上的 `.env` 里，仓库里只有 `.env.example`。
+
+**Q：备份怎么做的？做过恢复测试吗？**
+一个 backup 容器每天执行一次 `mysqldump --single-transaction`，压缩后写到宿主机的 `./backups`，保留 7 天。`--single-transaction` 利用 InnoDB 的 MVCC 读取一个一致的快照，不锁表，备份时网站照常可用。先写 `.tmp` 文件，成功后再改名，这样失败时不会留下一个看起来正常的半截文件。做过恢复测试：把备份导入一个新的 MySQL 容器，`feeds` 是 1426 行，和线上一致。没有测试过恢复的备份，不能算是备份。
+
+**Q：为什么不用 cron？**
+在容器里用 `while true; do ...; sleep 86400; done` 就够了，不用再多装一个 cron 守护进程。代价是备份时间不固定（从容器启动开始算），对个人项目可以接受。
