@@ -37,12 +37,23 @@ const (
 	maxFailures = 10
 	// Summaries feed the search index (title + summary), so keep them short.
 	summaryRunes = 500
+	// Feeds nobody subscribes to keep article text only for their newest
+	// entries, enough for a new subscriber's first 20.
+	keepEntries  = 30
+	cleanupEvery = 24 * time.Hour
 )
 
 // Run fetches due feeds round after round until ctx is cancelled. It returns
 // only after every in-flight fetch has stopped.
 func (w *Worker) Run(ctx context.Context) {
+	var lastCleanup time.Time // zero: clean up once at start
 	for {
+		if time.Since(lastCleanup) >= cleanupEvery {
+			if _, err := w.Cleanup(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("cleanup: %v", err)
+			}
+			lastCleanup = time.Now() // on failure, try again next day rather than every round
+		}
 		w.runRound(ctx)
 		select {
 		case <-ctx.Done():
@@ -107,6 +118,29 @@ func (w *Worker) runRound(ctx context.Context) {
 		f := failed.Load()
 		log.Printf("round done: %d feeds in %s, %d failed (%.1f%%)", n, time.Since(start).Round(time.Millisecond), f, float64(f)*100/float64(n))
 	}
+}
+
+// Cleanup drops the article text of old entries in feeds nobody subscribes to,
+// keeping it for the keepEntries newest, and returns how many entries it
+// trimmed. Article text is most of the database; titles and summaries stay so
+// old entries remain searchable. Each feed is its own small transaction, so
+// subscribing and fetching are never blocked for long.
+func (w *Worker) Cleanup(ctx context.Context) (int64, error) {
+	start := time.Now()
+	ids, err := w.repo.FeedsToPrune(ctx, keepEntries)
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, id := range ids {
+		n, err := w.repo.PruneFeed(ctx, id, keepEntries)
+		if err != nil {
+			return total, err
+		}
+		total += n
+	}
+	log.Printf("cleanup: dropped article text of %d entries in %d feeds in %s", total, len(ids), time.Since(start).Round(time.Millisecond))
+	return total, nil
 }
 
 // release hands the lease back after shutdown interrupted a fetch. It uses its

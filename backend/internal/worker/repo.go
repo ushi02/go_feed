@@ -82,3 +82,43 @@ func (r *Repo) LockLeased(ctx context.Context, feedID uint64, token string) (sub
 func (r *Repo) Finish(ctx context.Context, feedID uint64, token string, updates map[string]any) error {
 	return r.db.WithContext(ctx).Model(&subscription.Feed{}).Where("id = ? AND lease_token = ?", feedID, token).Updates(updates).Error
 }
+
+// FeedsToPrune returns feeds nobody subscribes to with more than keep entries
+// that still have their article text.
+func (r *Repo) FeedsToPrune(ctx context.Context, keep int) ([]uint64, error) {
+	var ids []uint64
+	err := r.db.WithContext(ctx).Raw(`SELECT f.id FROM feeds f
+WHERE NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.feed_id = f.id)
+  AND (SELECT COUNT(*) FROM entries e WHERE e.feed_id = f.id AND e.content IS NOT NULL) > ?`, keep).Scan(&ids).Error
+	return ids, err
+}
+
+// PruneFeed drops the article text of all but the newest keep entries of a
+// feed nobody subscribes to. The rows stay: the feed still lists those
+// articles, and without the row (its guid_hash) the next fetch would insert
+// them again as new entries. An entry some user still has a row for (a
+// starred one) keeps its text. It takes the same feed row lock as subscribing
+// and re-checks for subscribers under it.
+func (r *Repo) PruneFeed(ctx context.Context, feedID uint64, keep int) (int64, error) {
+	var deleted int64
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var feed subscription.Feed
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", feedID).First(&feed).Error; err != nil {
+			return err
+		}
+		var subscribers int64
+		if err := tx.Table("subscriptions").Where("feed_id = ?", feedID).Count(&subscribers).Error; err != nil || subscribers > 0 {
+			return err
+		}
+		var keepIDs []uint64
+		if err := tx.Table("entries").Where("feed_id = ?", feedID).Order("sort_at DESC, id DESC").Limit(keep).Pluck("id", &keepIDs).Error; err != nil || len(keepIDs) == 0 {
+			return err
+		}
+		res := tx.Exec(`UPDATE entries SET content = NULL
+WHERE feed_id = ? AND id NOT IN ? AND content IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM user_entries ue WHERE ue.entry_id = entries.id)`, feedID, keepIDs)
+		deleted = res.RowsAffected
+		return res.Error
+	})
+	return deleted, err
+}
