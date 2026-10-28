@@ -7,6 +7,8 @@ import (
 	"syscall"
 
 	"github.com/ushi02/go_feed/backend/internal/db"
+	"github.com/ushi02/go_feed/backend/internal/entry"
+	"github.com/ushi02/go_feed/backend/internal/subscription"
 	"github.com/ushi02/go_feed/backend/internal/worker"
 )
 
@@ -20,5 +22,11 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	pool := subscription.NewService(subscription.NewRepo(database), entry.NewRepo(database))
+	imported, skipped, err := pool.ImportPool(ctx)
+	if err != nil {
+		log.Fatalf("import blog pool: %v", err)
+	}
+	log.Printf("blog pool: %d feeds imported, %d rows without a valid feed URL skipped", imported, skipped)
 	worker.NewWorker(database).Run(ctx)
 }

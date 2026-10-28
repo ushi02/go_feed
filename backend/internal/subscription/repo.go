@@ -70,14 +70,25 @@ func (r *Repo) LockFeed(ctx context.Context, canonical string) (Feed, error) {
 	return feed, err
 }
 
-func (r *Repo) ScheduleNow(ctx context.Context, feedID uint64) error {
-	return r.db.WithContext(ctx).Model(&Feed{}).Where("id = ?", feedID).Update("next_fetch_at", time.Now().UTC()).Error
+// UpsertPoolFeeds inserts pool feeds, or marks existing ones as in the pool.
+// An existing feed keeps its title and fetch state.
+func (r *Repo) UpsertPoolFeeds(ctx context.Context, feeds []Feed) error {
+	return r.db.WithContext(ctx).
+		Clauses(clause.OnConflict{DoUpdates: clause.Assignments(map[string]any{"in_pool": true})}).
+		CreateInBatches(feeds, 200).Error
 }
 
-// ScheduleIfIdle schedules a fetch now unless the feed was fetched after notSince.
+// ScheduleNow schedules a fetch now. A feed judged dead gets one more chance:
+// if this fetch fails too, the Worker disables it again.
+func (r *Repo) ScheduleNow(ctx context.Context, feedID uint64) error {
+	return r.db.WithContext(ctx).Model(&Feed{}).Where("id = ?", feedID).
+		Updates(map[string]any{"next_fetch_at": time.Now().UTC(), "disabled_at": nil}).Error
+}
+
+// ScheduleIfIdle is ScheduleNow unless the feed was fetched after notSince.
 func (r *Repo) ScheduleIfIdle(ctx context.Context, feedID uint64, notSince time.Time) (bool, error) {
 	res := r.db.WithContext(ctx).Model(&Feed{}).Where("id = ? AND (last_fetched_at IS NULL OR last_fetched_at < ?)", feedID, notSince).
-		Update("next_fetch_at", time.Now().UTC())
+		Updates(map[string]any{"next_fetch_at": time.Now().UTC(), "disabled_at": nil})
 	return res.RowsAffected != 0, res.Error
 }
 

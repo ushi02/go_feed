@@ -149,7 +149,7 @@ func get(ctx context.Context, raw, etag, modified string) ([]byte, *http.Respons
 		return nil, resp, nil
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("feed returned HTTP %d", resp.StatusCode)
+		return nil, nil, &StatusError{Code: resp.StatusCode}
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
@@ -226,6 +226,11 @@ func Discover(ctx context.Context, raw string) ([]Candidate, error) {
 	}
 	return out, nil
 }
+
+// StatusError is returned when the server answers with a status other than 200 or 304.
+type StatusError struct{ Code int }
+
+func (e *StatusError) Error() string { return fmt.Sprintf("feed returned HTTP %d", e.Code) }
 
 func Hash(s string) []byte {
 	h := sha256.Sum256([]byte(s))

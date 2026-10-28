@@ -20,6 +20,8 @@ type Feed struct {
 	LastError     string     `json:"last_error"`
 	FailureCount  int        `json:"-"`
 	Initialized   bool       `json:"-"`
+	InPool        bool       `json:"in_pool"`
+	DisabledAt    *time.Time `json:"disabled_at"`
 }
 
 type Folder struct {

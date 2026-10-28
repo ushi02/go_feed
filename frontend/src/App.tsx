@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 type User = { id: number; username: string }
 type Folder = { id: number; name: string }
-type Feed = { id: number; title: string; url: string; last_error: string; last_fetched_at: string | null }
+type Feed = { id: number; title: string; url: string; last_error: string; last_fetched_at: string | null; disabled_at: string | null }
 type Subscription = { id: number; feed_id: number; folder_id: number | null; feed: Feed }
 type Entry = { id: number; feed_id: number; feed_title: string; title: string; url: string; sort_at: string; read: boolean; starred_at: string | null }
 type Candidate = { url: string; title: string }
@@ -213,6 +213,7 @@ export default function App() {
       <div className="nav-group feeds">{subs.map(s => <div className="feed-row" key={s.id}>
         <button className={subID === s.id ? 'active' : ''} onClick={() => { setSubID(s.id); setFolderID(null) }}>{s.feed.title || s.feed.url}</button>
         {unread[s.id] > 0 && <span className="count">{unread[s.id]}</span>}
+        {s.feed.disabled_at && <span className="dead" title={`已停止抓取：${s.feed.last_error}。点击刷新可重试`}>已失效</span>}
         <button className="icon" title="手动刷新" onClick={() => refreshSubscription(s.id)}>↻</button>
         <button className="icon" title="取消订阅" onClick={() => removeSubscription(s.id)}>×</button>
       </div>)}</div>

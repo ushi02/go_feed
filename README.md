@@ -27,4 +27,8 @@ cd frontend && npm install && npm run dev
 
 验证代码：`cd backend && go test ./...`、`cd backend && go vet ./...`、`cd frontend && npm run build`。Compose 启动后可运行 `python3 scripts/smoke.py` 验证 API 与 MySQL；`API_URL=http://127.0.0.1:18080 python3 scripts/live_feed_smoke.py` 会访问公开的 Go 博客，验证自动发现与实际抓取。集成脚本会临时创建账号，并可能受本地注册限流影响。
 
+## 数据来源
+
+中文独立博客池来自 [timqian/chinese-independent-blogs](https://github.com/timqian/chinese-independent-blogs)（MIT License，Copyright (c) 2019 Tim Qian）。仓库里存了一份 `blogs-original.csv` 快照和原许可证，位于 `backend/internal/subscription/pool/`。Worker 每次启动都会导入一次，重复导入不会产生重复数据。只导入有 RSS 地址的博客。
+
 项目的架构图、完整计划、独立 HTML 解说和两种 AWS 部署方案见 [docs/rss-reader/README.md](docs/rss-reader/README.md)。

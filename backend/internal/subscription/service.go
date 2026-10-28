@@ -100,7 +100,8 @@ func (s *Service) Subscribe(ctx context.Context, userID uint64, rawURL string, f
 		if !created {
 			return ErrAlreadySubscribed
 		}
-		if subscribers == 0 {
+		// Fetch now if nobody was reading it yet, or if it was judged dead.
+		if subscribers == 0 || feed.DisabledAt != nil {
 			return subs.ScheduleNow(ctx, feed.ID)
 		}
 		return nil
