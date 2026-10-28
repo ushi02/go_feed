@@ -4,6 +4,26 @@
 
 「你遇到过什么困难」这类问题，用 [dev-problems.md](dev-problems.md) 里的问题和故事回答，比如「为什么抓 RSS 要用 goroutine」。
 
+## 先背这一段：项目介绍
+
+**30 秒版本：**
+go_feed 是一个多用户 RSS 阅读器，专门用来发现和阅读中文独立博客。除了普通的订阅和阅读，它内置了约 1400 个独立博客组成的「博客池」，可以先按关键词全文搜索，再订阅。后端是 Go + MySQL，分成 API 和后台抓取的 Worker 两个程序，用 Docker Compose 和 Caddy 部署在一台 VPS 上。我自己每天都在用。
+
+**2 分钟版本，按这个顺序讲，每一点都能展开：**
+1. **数据模型：** 文章所有人共享，已读状态每人一份，新文章写入时为每个订阅者插一行（写入扩散）。→ 展开见 M1-3
+2. **后台抓取：** 不用消息队列，靠 MySQL 的 `SKIP LOCKED` 加租约让多个 goroutine 分工，有订阅者的源 6 小时抓一次，失效的源自动停止。→ M2-2、M2-3
+3. **中文搜索：** 用 MySQL 自带的 ngram 全文索引，而不是 Elasticsearch，理由是规模和运维成本。→ M2-4、dev-problems 里的故事
+4. **安全：** 所有外部请求都经过 SSRF 防护，查询都带 `user_id`，cookie、CSRF、限流都有。→ M0、M1-5、M4-1
+5. **测试和部署：** 用 testcontainers 起真实 MySQL 做集成测试，CI 跑 `-race`；生产环境只有 Caddy 对外，每天备份并做过恢复测试。如果要扩展，我写了 AWS 的迁移设计。→ M0、M4-1、M4-2
+
+## 目录
+
+- 测试和重构：M0、M1-1、M1-3、M1-4
+- 抓取和调度：M2-2、M2-3、M2-5
+- 搜索：M2-4
+- 安全和部署：M1-5、M4-1、M4-2
+- 大模型：M3-1
+
 ## M0 测试安全网
 
 **Q：为什么重构之前先写测试？**
@@ -228,3 +248,22 @@ api 收到的 TCP 连接来自 Caddy，所以要读 Caddy 加上的 `X-Forwarded
 
 **Q：为什么不用 cron？**
 在容器里用 `while true; do ...; sleep 86400; done` 就够了，不用再多装一个 cron 守护进程。代价是备份时间不固定（从容器启动开始算），对个人项目可以接受。
+
+## M4-2 README 和 AWS 扩展设计
+
+**Q：如果用户变多，你会怎么迁到 AWS？**
+（详细见 `docs/rss-reader/deployment.md`）Caddy 换成 ALB + ACM 证书，前面加 CloudFront 和 WAF；API 和 Worker 分别跑成两个 ECS Fargate 服务，API 至少 2 个任务、分布在两个可用区；MySQL 换成 RDS for MySQL Multi-AZ；`.env` 换成 Secrets Manager，日志进 CloudWatch。
+
+**Q：为什么是 RDS for MySQL，不换成 DynamoDB？**
+搜索依赖 MySQL 的 ngram 全文索引，Worker 调度依赖 `FOR UPDATE SKIP LOCKED`，RDS for MySQL 8 都支持，代码不用改。换 DynamoDB 等于重写搜索和调度。
+
+**Q：代码要改什么才能跑多个实例？**
+先说已经没问题的：会话存在 MySQL 里，任何一个 API 实例都能处理请求；Worker 本来就是按多个并发设计的（`SKIP LOCKED` + 租约），多开几个任务也不会重复抓。要改的有两处：
+- 限流是进程内的，N 个实例就变成 N 倍的额度。推荐在 WAF 上加基于速率的规则，跨实例统一计数，也不用引入 Redis。
+- 迁移现在是 API 启动时执行、没有加锁，两个实例同时启动可能同时执行同一个迁移。改成部署流水线里先单独跑一次迁移任务，再启动新的 API。
+
+**Q：在 AWS 上，SSRF 有什么新风险？**
+云上的元数据地址（ECS 是 `169.254.170.2`）能拿到临时凭证，是 SSRF 最常见的目标。fetcher 在拨号时检查解析后的 IP，拒绝 link-local 地址，这个地址已经被挡住了，重定向也一样。另外任务角色只给最小权限，就算被绕过，能拿到的东西也很少。
+
+**Q：为什么现在不直接上 AWS？**
+成本。ALB、NAT Gateway、Multi-AZ 的 RDS 都是不管有没有人用都要付的固定费用，加起来大概是 VPS 的十倍以上。现在是个人和几个朋友在用，一台 VPS 足够。如果只能做一步，我会先把数据库换成单可用区的 RDS，因为现在最大的风险是机器坏了以后数据怎么恢复，托管数据库正好解决这一点。

@@ -1,5 +1,7 @@
-# RSS Reader 文档
+# 文档索引
 
-从 [架构图](architecture.md) 了解组件与数据流，再读 [实施计划](plan.md) 查看行为规则和接口。浏览器中可直接打开 [HTML 解说页](architecture.html)；[部署说明](deployment.md) 列出本地环境和两种 AWS 方案。
-
-这些文档以当前 Go API、Worker、React 前端和 MySQL 迁移为对象。登录限流在 API 进程内完成；多实例部署时需要重新设计共享限流。
+- [实施路线图](plan.md)：里程碑、每一步的验证方法和当前进度
+- [部署与 AWS 扩展设计](deployment.md)（英文）：现在的单机部署，以及迁到 AWS 时的架构和要改的代码
+- [项目导览](../learning/project-overview.html)：架构、代码目录、数据模型的图解（替代了原来 Codex 写的 architecture.md / architecture.html，那两份描述的是已经废弃的「已读水位」模型）
+- [全文搜索讲解](../learning/full-text-search.html)
+- [面试要点](../interview-notes.md)、[开发问题记录](../dev-problems.md)
