@@ -23,8 +23,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const body = await res.json().catch(() => ({}))
     throw new Error(body.error || `请求失败 (${res.status})`)
   }
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+  // Some successful responses have no body (204, and 202 from refresh), so
+  // parse JSON only when there is something to parse.
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export default function App() {
