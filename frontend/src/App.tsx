@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import Chat from './Chat'
 
 type User = { id: number; username: string }
 type Folder = { id: number; name: string }
@@ -55,6 +56,7 @@ export default function App() {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState<{ q: string; results: SearchResult[] } | null>(null)
 
+  const subscribedURLs = useMemo(() => new Set(subs.map(s => s.feed.url)), [subs])
   const report = (e: unknown) => { setError(e instanceof Error ? e.message : String(e)); setNotice('') }
   const refreshNav = useCallback(async () => {
     const [f, s] = await Promise.all([
@@ -252,6 +254,7 @@ export default function App() {
     {search && <div className="reader-backdrop" onClick={() => setSearch(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSearch(null)}>×</button><span className="eyebrow">SEARCH</span><h1>「{search.q}」</h1><p className="search-hint">在博客池和你订阅的文章里找到 {search.results.length} 篇，按相关度排序。</p>
       {search.results.map(r => <article key={r.entry_id} className="search-result"><span className="entry-meta">{r.feed_title || r.feed_url} · {new Date(r.sort_at).toLocaleDateString('zh-CN')}</span><h2>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title || '无标题'}</a> : r.title || '无标题'}</h2>{r.summary && <p>{r.summary.length > 140 ? r.summary.slice(0, 140) + '…' : r.summary}</p>}{r.subscribed ? <span className="search-subscribed">已订阅</span> : <button className="outline" onClick={() => subscribeFromSearch(r)}>订阅这个博客</button>}</article>)}
       {search.results.length === 0 && <div className="empty">没有找到相关文章。试试换个词，或者用空格分开多个词。</div>}</section></div>}
+    <Chat subscribedURLs={subscribedURLs} onSubscribe={addSubscription} />
     {showManage && <div className="reader-backdrop" onClick={() => setShowManage(false)}><section className="reader manage-panel" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setShowManage(false)}>×</button><span className="eyebrow">ORGANIZE</span><h1>管理订阅</h1><h2>文件夹</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>重命名</button><button onClick={() => deleteFolder(f)}>删除</button></div>)}<h2>订阅源</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">未分类</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>取消订阅</button></div>)}</section></div>}
   </div>
 }

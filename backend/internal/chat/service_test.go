@@ -204,3 +204,22 @@ func TestWindowStartsAtUserMessage(t *testing.T) {
 		t.Fatalf("window = %+v", got)
 	}
 }
+
+// Each finished piece of answer text is followed by a break, so the page can
+// show what Gugu said before and after using tools as separate bubbles, the
+// same way they come back from the database after a refresh.
+func TestReplyMarksEndOfEachAnswerPart(t *testing.T) {
+	svc, _, _ := newTestService(
+		llm.Message{Role: llm.RoleAssistant, Content: "我先查一下。", ToolCalls: []llm.ToolCall{{ID: "c1", Type: "function", Function: llm.FunctionCall{Name: toolSearchEntries, Arguments: `{"query":"Go"}`}}}},
+		answer("查到了"),
+	)
+	var got []string
+	ev := Events{Text: func(s string) { got = append(got, "text:"+s) }, Break: func() { got = append(got, "break") }}
+	if _, err := svc.Reply(context.Background(), 1, user("Go"), ev); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, "|")
+	if !strings.HasSuffix(joined, "break") || strings.Count(joined, "break") != 2 || !strings.Contains(joined, "。|break|text:") {
+		t.Fatalf("events: %s", joined)
+	}
+}

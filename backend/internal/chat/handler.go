@@ -31,8 +31,9 @@ func (h *Handler) NewConversation(c *gin.Context) {
 	c.Status(204)
 }
 
-// Send answers with server-sent events: "text" pieces and "card"s while the
-// reply is made, then "done", or "error" if it broke off. An error found
+// Send answers with server-sent events: "text" pieces, a "break" after each
+// part of the answer, and "card"s while the reply is made, then "done", or
+// "error" if it broke off. An error found
 // before anything was sent is a normal JSON error response instead.
 func (h *Handler) Send(c *gin.Context) {
 	var req struct {
@@ -56,8 +57,9 @@ func (h *Handler) Send(c *gin.Context) {
 		c.Writer.Flush()
 	}
 	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, Events{
-		Text: func(piece string) { send("text", gin.H{"text": piece}) },
-		Card: func(card Card) { send("card", card) },
+		Text:  func(piece string) { send("text", gin.H{"text": piece}) },
+		Break: func() { send("break", gin.H{}) },
+		Card:  func(card Card) { send("card", card) },
 	})
 	switch {
 	case err == nil:

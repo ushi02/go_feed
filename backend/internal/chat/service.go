@@ -171,10 +171,25 @@ func items(stored []Message) []Item {
 	return out
 }
 
-// Events receives a reply while it is being made. Either field may be nil.
+// Events receives a reply while it is being made. Any field may be nil.
 type Events struct {
-	Text func(piece string) // answer text, already cleaned of made-up links
-	Card func(Card)         // a blog that just passed verification
+	Text  func(piece string) // answer text, already cleaned of made-up links
+	Break func()             // one part of the answer ended; the next text is a new part
+	Card  func(Card)         // a blog that just passed verification
+}
+
+// partFilter tells Events.Break when one model message's text has ended.
+type partFilter struct {
+	*linkFilter
+	onBreak func()
+}
+
+func (f partFilter) Close() string {
+	text := f.linkFilter.Close()
+	if text != "" && f.onBreak != nil {
+		f.onBreak()
+	}
+	return text
 }
 
 // Reply runs one turn: the model may call the user's tools, then answers.
@@ -205,5 +220,5 @@ func (s *Service) Reply(ctx context.Context, userID uint64, history []llm.Messag
 		}
 	}
 	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt}}, history...)
-	return RunTools(ctx, s.llm, messages, tools, newLinkFilter(known, ev.Text))
+	return RunTools(ctx, s.llm, messages, tools, partFilter{newLinkFilter(known, ev.Text), ev.Break})
 }
