@@ -19,6 +19,12 @@ const (
 	shownLimit    = 200
 	maxInputRunes = 1000
 	titleRunes    = 50
+	// dailyLimit caps the messages a user may send in limitHours, so a
+	// stolen or scripted account cannot run up the model bill. It counts a
+	// rolling window rather than resetting at midnight, which would raise
+	// the question of whose midnight.
+	dailyLimit = 50
+	limitHours = 24
 )
 
 type Service struct {
@@ -64,6 +70,16 @@ func (s *Service) Send(ctx context.Context, userID uint64, text string, ev Event
 	}
 	if s.llm == nil {
 		return ErrNotConfigured
+	}
+	// Two messages sent at the same moment may both pass the check, so the
+	// limit can be exceeded by one or two. That is fine: it guards the bill,
+	// it is not exact accounting.
+	sent, err := s.repo.CountSentSince(ctx, userID, limitHours)
+	if err != nil {
+		return err
+	}
+	if sent >= dailyLimit {
+		return ErrDailyLimit
 	}
 	conv, err := s.repo.Latest(ctx, userID)
 	if errors.Is(err, errNoConversation) {

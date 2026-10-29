@@ -66,6 +66,8 @@ func (h *Handler) Send(c *gin.Context) {
 		// The page was closed; there is nobody to tell.
 	case errors.Is(err, ErrInvalidMessage):
 		httpx.Fail(c, 400, "消息不能为空，也不能超过 1000 字")
+	case errors.Is(err, ErrDailyLimit):
+		httpx.Fail(c, 429, "咕咕累了：24 小时内最多聊 50 条，晚点再来吧")
 	case errors.Is(err, ErrNotConfigured):
 		httpx.Fail(c, 503, "咕咕还没有配置好（缺少 DEEPSEEK_API_KEY）")
 	default:

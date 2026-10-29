@@ -39,5 +39,6 @@ type Item struct {
 var (
 	ErrNotConfigured  = errors.New("chatbot is not configured")
 	ErrInvalidMessage = errors.New("message is empty or too long")
+	ErrDailyLimit     = errors.New("daily message limit reached")
 	errNoConversation = errors.New("no conversation yet")
 )

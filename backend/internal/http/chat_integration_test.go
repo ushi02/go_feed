@@ -194,3 +194,36 @@ func TestChatErrors(t *testing.T) {
 		t.Fatalf("items: %+v", items)
 	}
 }
+
+// At most 50 messages in 24 hours per user. Older messages and other users'
+// messages do not count, and a refused message is not stored.
+func TestChatDailyLimit(t *testing.T) {
+	skipShort(t)
+	fake := &llm.Fake{}
+	for range 3 {
+		fake.Replies = append(fake.Replies, llm.Message{Role: llm.RoleAssistant, Content: "好的"})
+	}
+	c := newChatClient(t, "chat-limit", fake)
+	c.do("POST", "/api/chat/conversations", nil, 204, nil)
+	var userID, convID uint64
+	database.Raw("SELECT id FROM users WHERE username = ?", "chat-limit").Scan(&userID)
+	database.Raw("SELECT id FROM conversations WHERE user_id = ?", userID).Scan(&convID)
+	insert := func(n int, ago string) {
+		for range n {
+			database.Exec("INSERT INTO messages (conversation_id, user_id, role, content, created_at) VALUES (?, ?, 'user', 'x', NOW(6) - INTERVAL "+ago+")", convID, userID)
+		}
+	}
+	insert(30, "25 HOUR") // yesterday: not counted
+	insert(49, "1 HOUR")
+
+	c.sendChat("第 50 条") // still allowed
+	c.do("POST", "/api/chat/messages", map[string]string{"text": "第 51 条"}, 429, nil)
+	var stored int64
+	database.Raw("SELECT COUNT(*) FROM messages WHERE user_id = ? AND content = '第 51 条'", userID).Scan(&stored)
+	if stored != 0 {
+		t.Fatal("refused message was stored")
+	}
+
+	other := newChatClient(t, "chat-limit-other", fake)
+	other.sendChat("我还能聊")
+}

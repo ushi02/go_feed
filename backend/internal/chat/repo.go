@@ -41,6 +41,16 @@ func (r *Repo) RecentMessages(ctx context.Context, userID, conversationID uint64
 	return ms, err
 }
 
+// CountSentSince counts the messages the user sent (not Gugu's replies) in
+// the last window, using the database clock. Index: (user_id, role, created_at).
+func (r *Repo) CountSentSince(ctx context.Context, userID uint64, hours int) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&Message{}).
+		Where("user_id = ? AND role = 'user' AND created_at >= NOW(6) - INTERVAL ? HOUR", userID, hours).
+		Count(&n).Error
+	return n, err
+}
+
 func (r *Repo) AddMessages(ctx context.Context, ms []Message) error {
 	if len(ms) == 0 {
 		return nil
