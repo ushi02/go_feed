@@ -21,7 +21,7 @@
 
 1. **把要部署的代码合并到 `main` 并 push。** 生产环境只跑 `main` 分支。现在的工作在 `refactor` 分支上，而且本地比远端多 3 个 commit。
 2. **设预算提醒：** Billing → Budgets → 创建一个月预算，比如 $20，超过 80% 时发邮件。Free plan 不会扣你的钱，但额度花得比预想快时，你能早点知道。
-3. **准备好域名：** 从 Student Pack 领一个，或者用已有的。
+3. **域名：** 用 `gugu.ushi02.live`，DNS 在 Cloudflare 里配置，见第 3 步。
 
 ## 第 1 步：创建 EC2 实例
 
@@ -49,9 +49,21 @@ EC2 → Elastic IPs → Allocate → Associate，选择 `go-feed` 实例。
 
 ## 第 3 步：配置 DNS
 
-在域名服务商那里添加一条 A 记录：`<你的域名>` → `<Elastic IP>`。
+域名用 `gugu.ushi02.live`。`ushi02.live` 是在 name.com 买的，但 DNS 交给了 Cloudflare 管理（域名服务器是 `*.ns.cloudflare.com`），所以**记录要在 Cloudflare 里加，在 name.com 里加不会生效**。
 
-**检查：** 在本机执行 `dig +short <你的域名>`，返回的是 Elastic IP。**这一步通过之前不要启动 Caddy。** 否则 Caddy 会不停地申请证书并失败，可能碰到 Let's Encrypt 的频率限制，被暂时禁止申请。
+Cloudflare 控制台 → 选 `ushi02.live` → DNS → Records → Add record：
+
+- Type：`A`
+- Name：`gugu`
+- IPv4 address：`<Elastic IP>`
+- Proxy status：**DNS only（灰色云朵）**，不要用橙色的 Proxied
+- TTL：Auto
+
+为什么要选 DNS only：HTTPS 证书由 Caddy 自己申请和续期，Cloudflare 的代理挡在中间时，申请可能失败；Cloudflare 的代理还可能把咕咕的流式输出攒起来再一次发出。选 DNS only，Cloudflare 只负责把域名解析成 IP，其他和本手册的设计一致。个人网站的记录不用动。
+
+**检查：** 在本机执行 `dig +short gugu.ushi02.live`，返回的是 Elastic IP，**不是** `104.x` 或 `172.6x` 开头的 Cloudflare 地址。**这一步通过之前不要启动 Caddy。** 否则 Caddy 会不停地申请证书并失败，可能碰到 Let's Encrypt 的频率限制，被暂时禁止申请。
+
+**以后想改名字**（比如改成 `feed.ushi02.live`）：在 Cloudflare 里加一条新名字的 A 记录 → 把服务器上 `.env` 的 `DOMAIN` 改掉 → 执行 `docker compose -f docker-compose.prod.yml up -d`，Caddy 会自动为新名字申请证书。旧地址会打不开（除非保留旧记录，再在 Caddyfile 里加一条跳转），用户要在新地址重新登录一次，因为 cookie 是按域名区分的。
 
 ## 第 4 步：在服务器上安装 Docker，加 swap
 
