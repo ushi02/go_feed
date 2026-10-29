@@ -104,7 +104,7 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
       <a href="#layers">四层文件</a><a href="#data">数据表</a><a href="#flow">一次点击的旅程</a>
       <a href="#auth">Session 与 JWT</a><a href="#disk">硬盘</a><a href="#storage">存储模型</a><a href="#deploy">本地与生产</a><a href="#tests">测试安全网</a>
     </nav>
-    <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，仓库里的代码还是旧结构：Go 代码放在根目录，大部分逻辑在 <code>internal/reader/</code>，使用水位线模型。</div>
+    <div class="note">本页描述的是讨论后的<strong>目标结构</strong>。截至 2026-10-27，目录、四层文件和写入扩散模型都已完成（M1 第 3 步）；博客池、Worker 并发抓取、全文搜索和定期清理也已完成（M2 全部，2026-10-28）；chatbot 还没做。全文搜索的原理另见 <a href="full-text-search.html">全文搜索讲解</a>。</div>
   </header>
 
   <section class="card" id="analogy">
@@ -125,20 +125,20 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
     <p>下面每个彩色方框都是一个<strong>独立运行的程序</strong>。<code>docker compose up</code> 会用 Docker 把它们一起启动，每个程序跑在自己的「容器」里。容器可以理解成一个隔离的小盒子，里面装好了这个程序需要的一切。</p>
     <div class="diagram">
       <div class="row"><div class="box ext"><strong>你的浏览器</strong><small>Chrome / Safari</small></div></div>
-      <div class="arrow"><b>↓</b>① 打开网页</div>
+      <div class="arrow"><b>↓</b>第 1 步：打开网页</div>
       <div class="row"><div class="box blue"><strong>前端 · React</strong><small>frontend/ 里的代码</small></div></div>
-      <div class="arrow"><b>↓</b>② 请求 /api/...</div>
+      <div class="arrow"><b>↓</b>第 2 步：请求 /api/...</div>
       <div class="row">
         <div class="box green"><strong>API 服务 · Go</strong><small>backend/cmd/api</small></div>
         <div class="arrow">→ 问问题 →</div>
         <div class="box purple ext"><strong>DeepSeek</strong><small>chatbot，之后加</small></div>
       </div>
-      <div class="arrow"><b>↓</b>③ 读写数据</div>
+      <div class="arrow"><b>↓</b>第 3 步：读写数据</div>
       <div class="row"><div class="box orange"><strong>MySQL 数据库</strong><small>数据存在硬盘上</small></div></div>
-      <div class="arrow"><b>↑</b>⑤ 存入新文章</div>
+      <div class="arrow"><b>↑</b>第 5 步：存入新文章</div>
       <div class="row">
         <div class="box green"><strong>Worker · Go</strong><small>backend/cmd/worker</small></div>
-        <div class="arrow">→ ④ 定时抓 RSS →</div>
+        <div class="arrow">→ 第 4 步：定时抓 RSS →</div>
         <div class="box ext"><strong>各个博客网站</strong><small>阮一峰、Go Blog……</small></div>
       </div>
     </div>
@@ -164,6 +164,7 @@ footer { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4
 │   │   ├── fetcher/          <span class="c">怎么抓一个 RSS、怎么防止被利用去访问内网</span>
 │   │   ├── worker/           <span class="c">多久抓一次、同时抓几个</span>
 │   │   ├── middleware/       <span class="c">每个请求都要经过的检查，比如「登录了吗」</span>
+│   │   ├── httpx/            <span class="c">各个 handler 共用的小工具，比如统一返回错误</span>
 │   │   ├── http/router.go    <span class="c">路由表：哪个网址交给哪段代码处理</span>
 │   │   └── db/migrations/    <span class="c">建表的 SQL 语句</span>
 │   ├── go.mod                <span class="c">Go 依赖了哪些库</span>
@@ -276,14 +277,18 @@ user_entries（个人状态，只有订阅者才有）
       <tr><th>发生了什么</th><th>表的变化</th></tr>
       <tr><td>导入中文独立博客列表</td><td><code>feeds</code> 增加约 1570 行，<code>in_pool=true</code></td></tr>
       <tr><td>Worker 抓到新文章</td><td><code>entries</code> 增加一行；如果有订阅者，就给<strong>每个订阅者</strong>在 <code>user_entries</code> 插入一行未读（写入扩散）</td></tr>
-      <tr><td>你订阅一个博客</td><td><code>subscriptions</code> 增加一行；按<strong>发布时间</strong>取最近 20 篇，在 <code>user_entries</code> 里插入未读记录</td></tr>
+      <tr><td>你订阅一个博客</td><td><code>subscriptions</code> 增加一行；如果这个博客<strong>已经抓取过</strong>，立刻按<strong>发布时间</strong>取最近 20 篇，在 <code>user_entries</code> 里插入未读记录</td></tr>
+      <tr><td>一个博客<strong>第一次</strong>被抓取</td><td>文章全部存进 <code>entries</code>，但每个订阅者只拿到最近 20 篇。否则第一次抓到 100 篇，你一订阅就有 100 篇未读</td></tr>
       <tr><td>你读了一篇文章</td><td>把你那一行的 <code>read_at</code> 设为当前时间，别人的不受影响</td></tr>
       <tr><td>全部标为已读</td><td><code>UPDATE user_entries SET read_at=NOW() WHERE user_id=你 AND read_at IS NULL</code></td></tr>
       <tr><td>侧栏未读数</td><td><code>SELECT feed_id, COUNT(*) … WHERE user_id=你 AND read_at IS NULL GROUP BY feed_id</code></td></tr>
-      <tr><td>取消订阅</td><td>删除这条订阅，以及你在这个博客下的 <code>user_entries</code>（收藏的保留）。博客和文章本身不删，别人可能还在订阅，它也可能还在博客池里</td></tr>
+      <tr><td>取消订阅</td><td>删除这条订阅，以及你在这个博客下<strong>没有收藏</strong>的 <code>user_entries</code>。收藏的那几行留着，所以文章列表查询对 <code>subscriptions</code> 用的是 <code>LEFT JOIN</code>（没有订阅了也能查到）。博客和文章本身不删，别人可能还在订阅，它也可能还在博客池里</td></tr>
       <tr><td>搜索某个话题</td><td>只在 <code>search_text</code> 上走全文索引，不扫描完整正文，所以索引小、速度快</td></tr>
       <tr><td>定期清理</td><td>没有订阅者的博客，每个只保留最近 30 篇；被人收藏的文章永远不删</td></tr>
     </table></div>
+    <h3>两件事同时发生怎么办？</h3>
+    <p>假设你点「订阅」的同时，Worker 正在第一次抓这个博客。如果两边各干各的，可能出现：你的订阅检查时博客「还没抓过」，所以没给你补 20 篇；Worker 补 20 篇时你的订阅「还没提交」，也没算上你。结果你一篇都没有。</p>
+    <p>解决办法是两边都先<strong>锁住 <code>feeds</code> 里这个博客的那一行</strong>（<code>SELECT … FOR UPDATE</code>），谁先拿到锁谁先做，另一个排队等。这样只有两种结果：要么你的订阅先完成、Worker 看得到你；要么 Worker 先完成、你订阅时看到「已经抓过」，自己补 20 篇。</p>
     <div class="tip">为什么要「统一存储」？一篇文章不会因为「在博客池里」还是「有人订阅」而变成不同的东西，分开存反而会出现两份数据、两套逻辑。统一之后，有没有订阅者只影响两件事：<strong>抓取频率</strong>，以及<strong>有没有 user_entries</strong>。</div>
   </section>
 
@@ -333,13 +338,13 @@ user_entries（个人状态，只有订阅者才有）
     <p>重构之前先写测试，好比<strong>搬家前先给每样东西拍照</strong>。搬完以后对照照片，就知道有没有东西摔坏或丢了。</p>
     <div class="table-scroll"><table>
       <tr><th>测试</th><th>测什么</th><th>依赖</th></tr>
-      <tr><td><span class="tag green">集成测试</span> <code>internal/reader/integration_test.go</code></td><td>走一遍完整流程：注册 → 订阅 → Worker 抓取 → 列出未读 → 标为已读。只通过 HTTP 接口操作，不调用内部函数</td><td>真实的 MySQL（testcontainers 临时启动一个 Docker 容器）和假 RSS 服务器（<code>httptest</code>）</td></tr>
-      <tr><td><span class="tag blue">单元测试</span> <code>internal/feedfetch/fetch_test.go</code></td><td><code>Canonical</code>（URL 规范化）、<code>allowedIP</code>（哪些 IP 禁止访问），以及抓取时的 304、2 MiB 大小上限、重定向到内网地址</td><td>不需要数据库，不到 1 秒就能跑完</td></tr>
+      <tr><td><span class="tag green">集成测试</span> <code>backend/internal/http/integration_test.go</code></td><td>走一遍完整流程：注册 → 订阅 → Worker 抓取 → 列出未读 → 标为已读。只通过 HTTP 接口操作，不调用内部函数</td><td>真实的 MySQL（testcontainers 临时启动一个 Docker 容器）和假 RSS 服务器（<code>httptest</code>）</td></tr>
+      <tr><td><span class="tag blue">单元测试</span> <code>backend/internal/fetcher/fetch_test.go</code></td><td><code>Canonical</code>（URL 规范化）、<code>allowedIP</code>（哪些 IP 禁止访问），以及抓取时的 304、2 MiB 大小上限、重定向到内网地址</td><td>不需要数据库，不到 1 秒就能跑完</td></tr>
     </table></div>
     <h3>为什么集成测试只通过 HTTP 接口操作？</h3>
     <p>M1 会把 <code>internal/reader/</code> 拆成好几个包，内部函数的名字和位置都会变。如果测试直接调用内部函数，重构时测试也得跟着改，就起不到安全网的作用了。HTTP 接口在重构前后保持不变，所以测试基本不用改。</p>
     <h3>为什么要让 IP 检查「可注入」？</h3>
-    <p>SSRF 防护会拒绝访问 <code>127.0.0.1</code>，而 <code>httptest</code> 服务器恰好运行在本机，测试会被自己的防护挡住。所以把检查函数做成了一个变量 <code>feedfetch.IPAllowed</code>，测试时替换成「放行本机」的版本，测完再换回原来的函数。生产代码的行为完全不变。</p>
+    <p>SSRF 防护会拒绝访问 <code>127.0.0.1</code>，而 <code>httptest</code> 服务器恰好运行在本机，测试会被自己的防护挡住。所以把检查函数做成了一个变量 <code>fetcher.IPAllowed</code>，测试时替换成「放行本机」的版本，测完再换回原来的函数。生产代码的行为完全不变。</p>
     <div class="tip">检验测试是否有效的方法：<strong>故意把代码改坏，看测试会不会失败。</strong>这次把「标为已读」改成什么都不做，集成测试马上报错 <code>unread entries after mark-read = 3, want 0</code>。这种做法叫 mutation testing（变异测试）。</div>
     <div class="note"><code>go test -short ./...</code> 会跳过集成测试，没有 Docker 时可以这样跑；CI（<code>.github/workflows/ci.yml</code>）每次 push 都会完整执行 <code>go vet</code> 和 <code>go test -race</code>。</div>
   </section>

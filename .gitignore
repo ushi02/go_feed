@@ -30,3 +30,6 @@ go.work.sum
 # Frontend build output
 frontend/dist/
 *.tsbuildinfo
+
+# Database dumps from the backup service
+backups/

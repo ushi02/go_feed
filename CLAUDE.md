@@ -4,8 +4,8 @@
 
 ## 当前状态与目标
 
-- 现状：Go 代码在仓库根目录，大部分逻辑在 `internal/reader/`；已读状态使用水位线模型（`read_through_entry_id`）。
-- 目标：按下方「目标结构」重构，并改用写入扩散模型。重构完成前，两种结构会同时存在，**以本文件的目标为准**。
+- 现状：目标结构的 account、subscription、entry、worker 已完成（handler/service/repo 分层 + 写入扩散）；search、chat、博客池还没做。
+- 目标：按下方「目标结构」继续实现剩下的模块，**以本文件为准**。
 - 架构讲解（给作者复习用）：`docs/learning/project-overview.html`
 
 ## 技术栈（已定，不要替换）
@@ -24,9 +24,11 @@ backend/
   internal/
     <模块>/               account、subscription、entry、search、chat
       entity.go handler.go service.go repo.go
+    llm/                  LLMClient 接口、DeepSeek 实现、测试用的 Fake
     fetcher/              抓取 RSS、Discover、HTML 清理、SSRF 防护
     worker/               调度、有界并发、按域名限流
     middleware/           登录校验、Origin 校验、限流
+    httpx/                handler 共用的小工具（Fail、ParseID、UserID）
     http/router.go        路由
     db/                   连接和迁移
 docs/
@@ -56,15 +58,16 @@ docs/
 ## 常用命令
 
 ```sh
-docker compose up --build        # 本地启动全部服务：前端 :15173，API :18080，MySQL :3308
-go test -race ./...              # 测试
-go vet ./...
+docker compose up --build        # 本地启动全部服务：页面和 API 都在 :18080（Go 提供前端），MySQL :3308
+cd backend && go test -race ./...   # 测试（集成测试需要 Docker；-short 跳过）
+cd backend && go vet ./...
 ```
 
 ## 与作者协作
 
 - 作者的开发经验有限，目标是**能在面试中讲清楚这个项目**。每次改动完成后，用中文简要说明：改了什么、为什么这样设计、面试可能被问什么。
 - 面试要点追加到 `docs/interview-notes.md`；重要概念更新到 `docs/learning/` 里的讲解页面。
+- 开发中遇到的真实问题（bug、踩坑、和预期不符的数据）记到 `docs/dev-problems.md`，格式：现象 → 原因 → 解决 → 怎么验证 → 学到了什么，最新的写在最前面。
 - 不要自行 commit 或 push，由作者确认后再提交。
 - 做设计决策时，给出一个推荐方案和理由，不要罗列一堆选项。
 - 写代码时遵循 karpathy-guidelines：先说出假设、只写必要的代码、改动只限于任务本身、每一步都要有验证方法（修 bug 先写复现测试，重构前后测试都要通过）。

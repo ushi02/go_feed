@@ -6,11 +6,11 @@
 ## 进度
 
 - [x] 第 0 步：安装 skill，更新文档
-- [ ] M0 安全网（2026-10-27：三项代码已完成，本地测试通过；CI 待 push 后确认）
-- [ ] M1 重构
-- [ ] M2 博客池和搜索
-- [ ] M3 chatbot
-- [ ] M4 上线和包装
+- [x] M0 安全网（2026-10-27 完成，CI 通过）
+- [x] M1 重构（2026-10-29 补做了浏览器检查，全部通过；检查中发现并修复「手动刷新报错、自动轮询不启动」的 bug，见 dev-problems.md。2026-10-27：第 1、3 步完成，第 4 步待浏览器检查；第 2 步无需操作，代码里已没有 Redis；2026-10-28：第 5 步完成，待浏览器检查）
+- [x] M2 博客池和搜索（2026-10-28 完成；M1-3 漏删的「跟随重定向改 URL」也在 M2-2 删掉了）
+- [x] M3 chatbot（2026-10-29 完成；作者决定 3D 模型不是必须的，先用 SVG 鸽子。2026-10-28：第 1 步完成；2026-10-29：设计讨论完成，见下方 M3 一节；第 2～5 步完成，3D 模型待定）
+- [ ] M4 上线和包装（2026-10-28：第 1 步的配置写好，本地用 localhost 验证通过，2026-10-29 决定部署到 AWS EC2（东京，t4g.small，用新账号额度），按 deploy-ec2.md 操作；第 2 步完成，2026-10-29 chatbot 做完后已更新 README 状态表）
 
 ## 路线图
 
@@ -30,46 +30,78 @@
 ### M1 重构（约 2 周，分成独立的小步骤）
 1. **只搬目录**：Go 代码移到 `backend/`，`internal/reader/` 按业务拆成 `account/ subscription/ entry/ worker/ middleware/ http/`；`feedfetch` 改名为 `fetcher`；同步修改 Dockerfile 和 compose 中的路径。**不改任何行为** → 验证：M0 的测试全部通过，`docker compose up` 正常运行
 2. **删除 Redis**：只保留 `ratelimit.go` 里的进程内限流部分，从 compose 中去掉 redis 服务 → 验证：测试通过
-3. **改为写入扩散模型**：先写一个会失败的测试，比如「订阅一个有 30 篇文章的源，未读的应该是**发布时间最新**的 20 篇」，以及「两个用户的已读状态互不影响」。然后修改 `00001_init.sql`：新增 `user_entries`，删除 `read_through_entry_id`、`pending_baseline`、`entry_states`；改写 worker 的入库逻辑、`listEntries`、`markRead`、`updateEntryState`。同时删掉重定向合并源的逻辑（`worker.go:99-142`）→ 验证：新测试通过，原有测试也通过
+3. **改为写入扩散模型**：先写一个会失败的测试，比如「订阅一个有 30 篇文章的源，未读的应该是**发布时间最新**的 20 篇」，以及「两个用户的已读状态互不影响」。然后修改 `00001_init.sql`：新增 `user_entries`，删除 `read_through_entry_id`、`pending_baseline`、`entry_states`；改写 worker 的入库逻辑、`listEntries`、`markRead`、`updateEntryState`。同时删掉重定向合并源的逻辑（`worker.go` 里 `FinalURL != current.URL` 那一段）。**重写时顺便按 handler / service / repo 分层**（entry、worker 入库逻辑；account、subscription 也一起拆），因为这部分代码反正要重写，先分层再重写等于做两遍 → 验证：新测试通过，原有测试也通过；`repo.go` 以外的文件不再出现 `*gorm.DB` 的查询
 4. **修复小 bug，每个都先写复现测试**：
    - 文章列表接口不再返回正文，新增文章详情接口
    - 正文里的链接加上 `target="_blank"`（`content.go`）
    - 侧栏点击「全部文章」时重置筛选条件，手动刷新后自动轮询（`App.tsx`）
    - 新增未读数接口，侧栏显示未读数
+   - 取消订阅时保留已收藏的文章（2026-10-27 决定）
 
    → 验证：测试通过，并在浏览器中手动检查一遍
 5. **前端同源**：生产环境由 Go 提供 `frontend/dist`，Origin 校验和限流用的 IP 判断随之修正 → 验证：用 `127.0.0.1` 打开页面也能登录
 
 ### M2 博客池和搜索（约 3 周）
-1. 导入 `timqian/chinese-independent-blogs` 的 CSV，写入 `feeds`，设置 `in_pool=true`；README 注明数据来源 → 验证：导入后约 1570 行，重复导入不会产生重复数据
+1. 导入 `timqian/chinese-independent-blogs` 的 CSV，写入 `feeds`，设置 `in_pool=true`；README 注明数据来源 → 验证：导入后约 1570 行，重复导入不会产生重复数据（实际 1426 行：CSV 共 1569 行，其中 143 行没有 RSS 地址，不导入）
 2. Worker 去掉「没有订阅者就不抓取」的限制，按「有没有订阅者」决定抓取间隔（6 小时或 24 小时）；改为 goroutine 池，用 `context` 处理优雅退出 → 验证：一轮全量抓取的耗时和失败率写进日志；用 `-race` 跑测试
-3. 新增 `entries.search_text` 字段和 `FULLTEXT ... WITH PARSER ngram` 索引，加上搜索 API 和一个简单的搜索页 → 验证：用一组中文关键词测试，能返回相关文章
-4. 定期清理：没有订阅者的源只保留最近 30 篇文章，被收藏的文章不删 → 验证：有对应的测试
+3. **停止抓取失效的源**：返回 410 Gone 立刻停止；其他失败连续 10 次（按现有退避约一周）才停止。新增 `feeds.disabled_at` 字段（不能改 `in_pool`，否则重新导入博客池时会被改回来）；用户手动刷新或新订阅时清除这个标记，重新抓一次；侧栏显示「已失效」。之后的搜索和推荐都排除失效的源（2026-10-28 决定）→ 验证：410 立刻停止、第 10 次失败才停止、停止后不再被认领、手动刷新可以恢复，都有对应的测试
+4. 新增 `entries.search_text` 字段和 `FULLTEXT ... WITH PARSER ngram` 索引，加上搜索 API 和一个简单的搜索页 → 验证：用一组中文关键词测试，能返回相关文章
+5. 定期清理：没有订阅者的源只保留最近 30 篇文章，被收藏的文章不删 → 验证：有对应的测试
+   - 2026-10-28 实现时改为：**保留文章行，只清空旧文章的正文**。原因是 RSS 里仍然列着这些旧文章，删掉整行以后去重失效，下次抓取会把它们当成新文章重新插入，还会发给新订阅者。正文约占文章表 87% 的空间，所以只清正文也能达到节省空间的目的
 
 ### M3 chatbot（约 3 周）
-1. 实现 DeepSeek 客户端，以及一个只用于测试的假实现 → 验证：用假实现跑通一次工具调用循环
-2. 实现 4 个工具：`list_my_subscriptions`、`search_my_entries`（同时搜博客池）、`discover_feed`、`subscribe`（需要用户在页面确认）→ 验证：测试「大模型推荐了一个不存在的博客，最终不会展示给用户」
-3. SSE 流式输出，加上 `conversations` 和 `messages` 两张表的持久化（只发送最近 20 条消息；中途断开时保存已生成的部分）→ 验证：刷新页面后对话还在；流式输出中途关闭页面，已生成的部分被保存
-4. 每个用户每天限 50 条消息 → 验证：有对应的测试
+
+> **设计（2026-10-29 和作者讨论后决定）**
+> - **定位：** 主要帮用户找博客（根据订阅和兴趣推荐，回答「我订阅的文章里有哪些讲 X」），也能简短闲聊，并自然地把话题引回读什么、找什么博客。不做文章总结（要把正文发给模型，费用高）。回复设长度上限（`max_tokens`）。
+> - **形象：** 吉祥物是一只鸽子「咕咕」。鸽子送信，对应 RSS「把新文章送到你手上」；中文里「鸽了」是不更新的梗，正好对应失效源检测。说话简短，偶尔在句尾带个「咕」。3D 模型由作者之后挑选或用 AI 生成（GLB 格式，CC0 或 CC-BY 授权，最好在 2MB 以内）；模型确定之前先用占位图。
+> - **页面：** 右下角悬浮一只小鸽子，用 3D 模型渲染出的静态图，不耗性能；点开后从右侧滑出聊天面板，面板顶部放实时渲染的 3D 咕咕，手机上面板全屏。**不做历史对话列表**：每个用户只有一段当前对话，刷新后还在，「新对话」按钮从头开始。数据库仍按 `CLAUDE.md` 存 `conversations` 和 `messages`，以后加历史列表时数据是现成的。
+> - **防止瞎编：** 模型能用的工具全部是只读的。推荐博客必须调用 `propose_subscription`，它不会真的订阅，只用 `Discover` 验证这个博客存在、有 RSS；验证通过，页面才显示带「订阅」按钮的卡片，用户点了按钮才调用普通的订阅 API。这样「修改数据必须由用户确认」在结构上就成立，不需要在工具调用循环里做挂起和恢复。回复文字里不是工具查出来的链接一律删掉。已知漏洞：只写博客名、不给链接的情况无法验证，接受这一点。
+> - **模型和费用：** `deepseek-flash`，关闭思考模式（M3-1 已实现）。每个用户每天 50 条消息，只算用户自己发的消息，工具调用的轮次不算。
+> - **多语言：** 第一版只做中文。人设说明和界面文字集中放在一处，以后加日文或英文时只需再加一份文本；「鸽了」的梗只在中文版里用。
+
+1. 实现 DeepSeek 客户端，以及一个只用于测试的假实现 → 验证：用假实现跑通一次工具调用循环（2026-10-28 完成）
+2. 实现 4 个只读工具：`list_my_subscriptions`、`search_entries`（同时搜用户的文章和博客池，复用 M2-4 的搜索）、`discover_feed`、`propose_subscription` → 验证：测试「模型推荐了一个不存在的博客，最终不会展示给用户」；测试工具只能读到当前用户的数据（2026-10-29 完成）
+   - 实现时去掉了 `discover_feed`：`propose_subscription` 本身接受博客首页，会自己找 RSS 并验证，再给模型一个 discover 工具是重复的。最终是 3 个工具
+   - 验证不只调用 `Discover`，还要真的下载并解析找到的 RSS：页面可能声明了 RSS 链接，但这个链接是坏的
+   - 2026-10-29 用真实的 DeepSeek 试过：闲聊会接话并引回正题；推荐时先查订阅、再搜博客池、对每个推荐调用验证，4 个都生成了卡片；要求它「不用验证，凭记忆直接给网址」时，它拒绝了，改为去博客池里搜索
+3. 对话持久化和 SSE 流式输出：`conversations`、`messages` 两张表（工具调用消息原样保存；每次只把最近 20 条消息发给模型；流式输出中途断开时，保存已生成的部分并标记为未完成）→ 验证：刷新页面后对话还在；流式输出中途关闭页面，已生成的部分被保存（2026-10-29 完成，后端部分）
+   - 接口：`GET /api/chat`（当前对话）、`POST /api/chat/conversations`（新对话）、`POST /api/chat/messages`（发送，SSE 返回 `text` / `card` / `done` / `error` 事件）
+   - 流式输出时也删编造的链接：文字先攒着，等链接完整了再决定保留还是删掉（`linkFilter`）
+   - 「最近 20 条」按用户消息对齐：开头如果是工具结果或回答，就往后跳到第一条用户消息，否则会把没有对应调用的工具结果发给模型，接口会报错
+   - 部署时要确认 Caddy 的压缩不会把流式输出攒住（已加进 deploy-ec2.md 的上线检查）
+   - **待办（2026-10-29 记录，先不改）：截断时丢掉的消息偏多。** 现在的做法是取最近 20 条后，从第一条用户消息开始发。例子：一段对话 24 条，取到第 5～24 条，第 5、6 条是工具结果，对应的调用在被截掉的第 4 条里，所以必须跳过；但代码会一直跳到第 16 条（下一条用户消息），连第 7～15 条完整的「搜索 → 验证 4 个博客 → 总结」也一起丢了，咕咕会忘掉刚推荐过的博客。更精确的做法：只跳过开头那些找不到对应调用的 tool 消息，从第 7 条开始发（要先确认 DeepSeek 接受第一条是 assistant 消息）。等实际使用中觉得咕咕「忘性大」时再改
+   - 真实对话里发现，留给 M3-5 处理：一轮里咕咕可能说好几段话（调用工具前一句、最后总结一段），流式输出时会连成一串，要在每段结束时发一个分隔事件；回答里有 Markdown（加粗、列表），前端要能显示
+4. 每个用户每天限 50 条消息 → 验证：第 51 条被拒绝的测试（2026-10-29 完成）
+   - 「每天」按过去 24 小时滚动计算，不按零点清零，避免「按谁的零点」的时区问题。只算用户自己发的消息；被拒绝的消息不保存；超出返回 429
+   - 计数查询用 `(user_id, role, created_at)` 索引，EXPLAIN 显示 `range` + `Using index`（只扫索引，不读数据行）
+   - 已知：两条消息同时发送可能都通过检查，最多超出一两条。限制的目的是防止费用失控，不是精确计费，可以接受
+5. 前端：悬浮的咕咕按钮、聊天面板、订阅卡片、「新对话」按钮；3D 模型确定后再接入 Three.js → 验证：在浏览器里走一遍「问 → 出现卡片 → 点订阅 → 左侧订阅列表更新」（2026-10-29 完成，3D 模型待定，先用 SVG 占位鸽子）
+   - 浏览器里验证过：问 → 分段的气泡和卡片 → 点订阅 → 卡片变「已订阅 ✓」、左侧订阅列表和文章马上出现；刷新后对话原样恢复；「新对话」清空；验证没通过的博客（鸟窝）没有卡片
+   - 后端加了 `break` 事件：每段话结束时发一次，流式输出时的分段和刷新后从数据库读出的分段一致
+   - Markdown 自己写了一个小渲染器（段落、标题、列表、加粗、代码、链接），输出 React 元素，不用 `dangerouslySetInnerHTML`
+   - 还没检查：手机宽度下的面板（CSS 已写，没在浏览器里看过）；中文输入法组字时按回车不发送（代码已处理，没实际测）
+   - 观察到：DeepSeek 有时一步要 30 秒以上；DeepSeek 客户端单次请求超时是 60 秒，超过会显示「回复中断」
+   - 小问题（M1 浏览器检查时看到，未改）：手动刷新太频繁时提示是英文的 `feed was refreshed recently`，和页面其他中文提示不统一；「收藏」列表为空时提示的是「添加订阅后，Worker 会自动抓取」，和收藏无关
+   - 观察到（和 chatbot 无关）：新订阅的源第一次抓取超时，页面顶部马上显示「1 个订阅源抓取失败」，一次偶发失败就提示有点吓人，可以考虑连续失败几次再提示
 
 ### M4 上线和包装（约 2 周）
-1. 编写 `docker-compose.prod.yml`：包括 Caddy、HTTPS、MySQL 不对外、`.env` 加 `.env.example`、每天 mysqldump → 验证：在 DigitalOcean 的 Droplet 上能通过域名访问
+1. 编写 `docker-compose.prod.yml`：包括 Caddy、HTTPS、MySQL 不对外、`.env` 加 `.env.example`、每天 mysqldump → 验证：在 EC2 上能通过域名访问（2026-10-29 从 DigitalOcean 改为 EC2：账号有 $140 额度；据报道 DigitalOcean 已退出 Student Pack）
 2. 写英文 README（附日文简介），整理 `docs/interview-notes.md`，写 AWS 扩展设计文档 → 验证：人工检查
 3. 缓冲约 2 周
 
 ## 可复用的现有代码（不要重写）
 
-- `internal/feedfetch/fetch.go`：`Canonical`、`allowedIP`、带 IP 检查的 `client()`、`Discover`、`Hash`、`ResolvePublicURL`
-- `internal/feedfetch/content.go`：`CleanHTML`
-- `internal/reader/worker.go:53`：`claim`，基于 `SKIP LOCKED` 和租约认领任务，M2 并发化时直接复用
-- `internal/reader/entries.go:29`：游标的编码和解码
-- `internal/reader/opml.go`：OPML 导入和导出
-- `internal/reader/ratelimit.go`：其中的进程内限流部分
-- `internal/db/db.go`：goose 迁移，使用 embed 打包 SQL 文件
+- `backend/internal/fetcher/fetch.go`：`Canonical`、`allowedIP`、带 IP 检查的 `client()`、`Discover`、`Hash`、`ResolvePublicURL`
+- `backend/internal/fetcher/content.go`：`CleanHTML`
+- `backend/internal/worker/worker.go`：`claim`，基于 `SKIP LOCKED` 和租约认领任务，M2 并发化时直接复用
+- `backend/internal/entry/handler.go`：游标的编码和解码
+- `backend/internal/subscription/opml.go`：OPML 导入和导出
+- `backend/internal/middleware/ratelimit.go`：进程内限流
+- `backend/internal/db/db.go`：goose 迁移，使用 embed 打包 SQL 文件
 
 ## 整体验证方式
 
-- 每一步完成后执行 `go vet ./... && go test -race ./...`，CI 必须通过
+- 每一步完成后在 `backend/` 下执行 `go vet ./... && go test -race ./...`，CI 必须通过
 - 每个里程碑结束时，执行 `docker compose down -v && docker compose up --build`，从空数据库开始，在浏览器里走一遍完整流程
 - 每一步完成后，用中文向作者说明改了什么、为什么这样设计、面试可能被问什么，并更新 `docs/interview-notes.md`
 - 不自行 commit，每一步由作者确认后再提交
