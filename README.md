@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ushi02/go_feed/actions/workflows/ci.yml/badge.svg)](https://github.com/ushi02/go_feed/actions/workflows/ci.yml)
 
-A multi-user RSS reader for discovering and reading Chinese independent blogs. Besides the usual "subscribe and read", it ships with a pool of about 1,400 independent blogs that you can search by keyword before subscribing.
+A multi-user RSS reader for discovering and reading Chinese independent blogs. Besides the usual "subscribe and read", it ships with a pool of about 1,400 independent blogs that you can search by keyword, and Gugu, a pigeon chatbot that recommends blogs it has actually checked.
 
 Backend: Go (Gin, GORM), MySQL 8. Frontend: React + Vite + TypeScript. Deployment: Docker Compose and Caddy on a single VPS.
 
@@ -16,7 +16,7 @@ Backend: Go (Gin, GORM), MySQL 8. Frontend: React + Vite + TypeScript. Deploymen
 | Background fetching of all feeds with a bounded worker pool | Done |
 | Blog pool (about 1,400 feeds) and Chinese full-text search | Done |
 | Production setup (Caddy HTTPS, private MySQL, daily backups) | Done; verified locally, not deployed yet |
-| Chatbot that recommends blogs (DeepSeek, tool calling) | In progress: LLM client and tool-call loop done |
+| Chatbot "Gugu" that recommends blogs (DeepSeek, tool calling, streaming) | Done |
 
 ## Architecture
 
@@ -27,7 +27,7 @@ flowchart LR
   A --> D[(MySQL 8)]
   W[Worker<br/>Go] --> D
   W -->|RSS / Atom / JSON Feed| S[Blogs]
-  A -.->|chatbot, planned| L[DeepSeek]
+  A -->|chatbot| L[DeepSeek]
 ```
 
 Two Go programs share one database. The **API** answers the browser and never fetches feeds on a timer. The **worker** fetches feeds in the background and never talks to the browser.
@@ -47,6 +47,8 @@ Each module (`account`, `subscription`, `entry`, `search`, `chat`) is split into
 **SSRF protection for every outbound request.** All feed URLs are untrusted input. The fetcher checks the resolved IP at dial time, which also covers redirects and DNS rebinding, and it rejects private and loopback addresses. It also enforces timeouts and a response size limit.
 
 **Security basics.** Sessions are random tokens stored as hashes, in `HttpOnly`, `SameSite=Lax` cookies that are `Secure` in production. Writes are protected against CSRF by an Origin check. Login and registration are rate limited per client IP, and only the reverse proxy's `X-Forwarded-For` is trusted.
+
+**A chatbot that cannot show made-up blogs.** Gugu (DeepSeek, OpenAI-compatible tool calling) has three tools, all read-only: list the user's subscriptions, search the pool, and propose a blog. A proposal is shown as a card with a subscribe button only after the server has fetched and parsed that blog's feed. Links in the answer that no tool returned are removed, also while the answer streams in, where a URL can arrive split over several pieces. The user ID is bound when the tools are built, never read from the model's arguments. Conversations are stored with tool calls as they were; only the newest 20 messages go to the model, and a reply cut off by a closed page is saved and marked incomplete. Each user may send 50 messages per rolling 24 hours.
 
 **Space control.** For feeds nobody subscribes to, the worker clears the text of all but the newest 30 articles once a day. Rows are kept so deduplication still works. Article text was about 87% of the table.
 
@@ -131,6 +133,6 @@ The blog pool comes from [timqian/chinese-independent-blogs](https://github.com/
   - 外部 URL へのリクエストはすべて SSRF 対策を通します。
 - **テスト：** testcontainers-go で本物の MySQL を起動する統合テストを、CI で `-race` 付きで実行しています。
 - **デプロイ：** VPS 1 台に Docker Compose と Caddy（自動 HTTPS）で構成しています。AWS への拡張案は別ドキュメントにまとめています。
-- **開発中：** DeepSeek のツール呼び出しを使ったブログ推薦チャットボットを開発しています。
+- **チャットボット「咕咕（クークー）」：** DeepSeek のツール呼び出しでブログを推薦します。推薦されたブログは、サーバーが実際に RSS を取得・解析して確認できたものだけがカードとして表示され、モデルが作り出した存在しないリンクは、ストリーミング中でも削除されます。
 
 日本の Go バックエンドのインターンシップに応募するためのポートフォリオで、作者自身も毎日使っています。
