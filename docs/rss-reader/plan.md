@@ -10,7 +10,7 @@
 - [ ] M1 重构（2026-10-27：第 1、3 步完成，第 4 步待浏览器检查；第 2 步无需操作，代码里已没有 Redis；2026-10-28：第 5 步完成，待浏览器检查）
 - [x] M2 博客池和搜索（2026-10-28 完成；M1-3 漏删的「跟随重定向改 URL」也在 M2-2 删掉了）
 - [ ] M3 chatbot（2026-10-28：第 1 步完成）
-- [ ] M4 上线和包装（2026-10-28：第 1 步的配置写好，本地用 localhost 验证通过，待在 Droplet 上用真实域名验证；第 2 步完成，chatbot 做完后 README 的状态表要更新）
+- [ ] M4 上线和包装（2026-10-28：第 1 步的配置写好，本地用 localhost 验证通过，2026-10-29 决定部署到 AWS EC2（东京，t4g.small，用新账号额度），按 deploy-ec2.md 操作；第 2 步完成，chatbot 做完后 README 的状态表要更新）
 
 ## 路线图
 
@@ -63,7 +63,7 @@
 4. 每个用户每天限 50 条消息 → 验证：有对应的测试
 
 ### M4 上线和包装（约 2 周）
-1. 编写 `docker-compose.prod.yml`：包括 Caddy、HTTPS、MySQL 不对外、`.env` 加 `.env.example`、每天 mysqldump → 验证：在 DigitalOcean 的 Droplet 上能通过域名访问
+1. 编写 `docker-compose.prod.yml`：包括 Caddy、HTTPS、MySQL 不对外、`.env` 加 `.env.example`、每天 mysqldump → 验证：在 EC2 上能通过域名访问（2026-10-29 从 DigitalOcean 改为 EC2：账号有 $140 额度；据报道 DigitalOcean 已退出 Student Pack）
 2. 写英文 README（附日文简介），整理 `docs/interview-notes.md`，写 AWS 扩展设计文档 → 验证：人工检查
 3. 缓冲约 2 周
 
