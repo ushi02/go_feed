@@ -113,6 +113,14 @@ func (r *Repo) IsSubscribed(ctx context.Context, userID, feedID uint64) (bool, e
 	return n != 0, err
 }
 
+// SubscribedToURL reports whether the user subscribes to the feed stored under this canonical URL.
+func (r *Repo) SubscribedToURL(ctx context.Context, userID uint64, canonical string) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Table("subscriptions s").Joins("JOIN feeds f ON f.id = s.feed_id").
+		Where("s.user_id = ? AND f.url_hash = ?", userID, fetcher.Hash(canonical)).Count(&n).Error
+	return n != 0, err
+}
+
 func (r *Repo) CountSubscribers(ctx context.Context, feedID uint64) (int64, error) {
 	var n int64
 	err := r.db.WithContext(ctx).Model(&Subscription{}).Where("feed_id = ?", feedID).Count(&n).Error

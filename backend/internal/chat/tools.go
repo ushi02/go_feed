@@ -1,0 +1,177 @@
+package chat
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/ushi02/go_feed/backend/internal/llm"
+	"github.com/ushi02/go_feed/backend/internal/search"
+	"github.com/ushi02/go_feed/backend/internal/subscription"
+)
+
+// Subscriptions and Searcher are what the tools need from other modules, as
+// interfaces so the tests can use small fakes instead of a database.
+type Subscriptions interface {
+	ListSubscriptions(ctx context.Context, userID uint64) ([]subscription.Subscription, error)
+	Verify(ctx context.Context, userID uint64, raw string) (subscription.Verified, error)
+}
+
+type Searcher interface {
+	Search(ctx context.Context, userID uint64, q string) ([]search.Result, error)
+}
+
+const (
+	toolListSubscriptions = "list_my_subscriptions"
+	toolSearchEntries     = "search_entries"
+	toolPropose           = "propose_subscription"
+
+	maxSubscriptionsShown = 100
+	maxSearchResults      = 10
+	summaryRunes          = 120
+)
+
+// Card is a blog recommendation the page may show with a subscribe button.
+// It exists only for feeds that propose_subscription verified.
+type Card struct {
+	Verified   bool   `json:"verified"`
+	FeedURL    string `json:"feed_url"`
+	Title      string `json:"title"`
+	SiteURL    string `json:"site_url"`
+	Subscribed bool   `json:"subscribed"`
+	Reason     string `json:"reason"`
+}
+
+// NewTools returns the tools for one user. The user ID is fixed here, not
+// taken from the model's arguments, so the model cannot read another user's
+// data. Every tool only reads: subscribing happens when the user presses the
+// button on a card, through the normal subscription API.
+func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
+	return []Tool{
+		{
+			Def: llm.ToolDef{
+				Name:        toolListSubscriptions,
+				Description: "列出用户已经订阅的博客。推荐之前先看一下，避免推荐用户已经订阅的。",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{}}`),
+			},
+			Run: func(ctx context.Context, _ json.RawMessage) (string, error) {
+				subsList, err := subs.ListSubscriptions(ctx, userID)
+				if err != nil {
+					return "", err
+				}
+				type row struct {
+					Title   string `json:"title"`
+					SiteURL string `json:"site_url,omitempty"`
+					FeedURL string `json:"feed_url"`
+				}
+				out := []row{}
+				for i, s := range subsList {
+					if i == maxSubscriptionsShown {
+						break
+					}
+					out = append(out, row{s.Feed.Title, s.Feed.SiteURL, s.Feed.URL})
+				}
+				return toJSON(out)
+			},
+		},
+		{
+			Def: llm.ToolDef{
+				Name:        toolSearchEntries,
+				Description: "按关键词搜索文章，范围是中文独立博客池和用户自己订阅的文章。返回文章和它所属的博客。关键词用空格分开，每个词都要匹配，所以词要少而准。",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"关键词，例如「分布式 数据库」"}},"required":["query"]}`),
+			},
+			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+				var a struct{ Query string }
+				if err := json.Unmarshal(args, &a); err != nil {
+					return "", err
+				}
+				results, err := searcher.Search(ctx, userID, a.Query)
+				if errors.Is(err, search.ErrEmptyQuery) {
+					return "", errors.New("query is empty")
+				}
+				if err != nil {
+					return "", err
+				}
+				type row struct {
+					Title      string `json:"title"`
+					URL        string `json:"url"`
+					Summary    string `json:"summary,omitempty"`
+					Blog       string `json:"blog"`
+					BlogFeed   string `json:"blog_feed_url"`
+					Subscribed bool   `json:"subscribed"`
+				}
+				out := []row{}
+				for i, r := range results {
+					if i == maxSearchResults {
+						break
+					}
+					out = append(out, row{r.Title, r.URL, cut(r.Summary, summaryRunes), r.FeedTitle, r.FeedURL, r.Subscribed})
+				}
+				return toJSON(out)
+			},
+		},
+		{
+			Def: llm.ToolDef{
+				Name:        toolPropose,
+				Description: "向用户推荐一个博客。系统会真实访问这个地址，确认博客存在、有 RSS，通过后在页面上显示一张带订阅按钮的卡片。推荐任何博客都必须调用这个工具；没有通过验证的博客不要再提。",
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"博客首页或 RSS 地址"},"reason":{"type":"string","description":"一句话说明为什么推荐，会显示在卡片上"}},"required":["url","reason"]}`),
+			},
+			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+				var a struct{ URL, Reason string }
+				if err := json.Unmarshal(args, &a); err != nil {
+					return "", err
+				}
+				v, err := subs.Verify(ctx, userID, a.URL)
+				if err != nil {
+					return "", errors.New("not verified, do not recommend this blog: " + err.Error())
+				}
+				// The reason is the model's own text shown on the card, so no links in it.
+				return toJSON(Card{Verified: true, FeedURL: v.FeedURL, Title: v.Title, SiteURL: v.SiteURL,
+					Subscribed: v.Subscribed, Reason: cut(removeLinks(a.Reason, nil), 200)})
+			},
+		},
+	}
+}
+
+// Cards returns the verified recommendations in messages, in order. A tool
+// result is matched to its tool name through the assistant's tool call ID,
+// so text from any other tool, or a failed verification, never becomes a card.
+func Cards(messages []llm.Message) []Card {
+	proposeCalls := map[string]bool{}
+	cards := []Card{}
+	for _, m := range messages {
+		for _, c := range m.ToolCalls {
+			if c.Function.Name == toolPropose {
+				proposeCalls[c.ID] = true
+			}
+		}
+		if m.Role != llm.RoleTool || !proposeCalls[m.ToolCallID] {
+			continue
+		}
+		var c Card
+		if json.Unmarshal([]byte(m.Content), &c) == nil && c.Verified && c.FeedURL != "" {
+			cards = append(cards, c)
+		}
+	}
+	return cards
+}
+
+// toJSON keeps & < > as they are (json.Marshal would write \u0026), so URLs
+// in tool results match the URLs the model copies into its answer.
+func toJSON(v any) (string, error) {
+	var b strings.Builder
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	err := enc.Encode(v)
+	return strings.TrimSpace(b.String()), err
+}
+
+func cut(s string, n int) string {
+	s = strings.TrimSpace(s)
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n]) + "…"
+}

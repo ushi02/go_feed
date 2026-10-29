@@ -38,6 +38,15 @@ type Subscription struct {
 	Feed     Feed    `gorm:"foreignKey:FeedID" json:"feed"`
 }
 
+// Verified is a feed that was actually downloaded and parsed just now. The
+// chatbot shows a blog to the user only in this form.
+type Verified struct {
+	FeedURL    string `json:"feed_url"`
+	Title      string `json:"title"`
+	SiteURL    string `json:"site_url"`
+	Subscribed bool   `json:"subscribed"`
+}
+
 // ImportItem is one feed read from an OPML file.
 type ImportItem struct{ URL, Folder string }
 
@@ -46,6 +55,7 @@ var (
 	ErrAlreadySubscribed = errors.New("already subscribed")
 	ErrInvalidFolder     = errors.New("invalid folder")
 	ErrRefreshedRecently = errors.New("feed was refreshed recently")
+	ErrNoFeed            = errors.New("no working feed found at this address")
 )
 
 // InvalidURLError carries the reason a feed URL was rejected, shown to the user as is.

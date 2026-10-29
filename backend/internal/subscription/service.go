@@ -24,6 +24,41 @@ func (s *Service) Discover(ctx context.Context, raw string) ([]fetcher.Candidate
 	return fetcher.Discover(ctx, raw)
 }
 
+// maxVerifyCandidates bounds the fetches one Verify may make.
+const maxVerifyCandidates = 3
+
+// Verify finds the feed behind raw (a homepage or a feed URL) and proves it
+// exists by fetching and parsing it. Discover alone is not enough: a page can
+// advertise a feed link that is broken.
+func (s *Service) Verify(ctx context.Context, userID uint64, raw string) (Verified, error) {
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	candidates, err := fetcher.Discover(ctx, raw)
+	if err != nil {
+		return Verified{}, err
+	}
+	for i, c := range candidates {
+		if i == maxVerifyCandidates {
+			break
+		}
+		res, err := fetcher.Fetch(ctx, c.URL, "", "")
+		if err != nil || res.Feed == nil {
+			continue
+		}
+		v := Verified{FeedURL: res.FinalURL, Title: res.Feed.Title}
+		if v.Title == "" {
+			v.Title = c.Title
+		}
+		// The link comes from the feed's own content; keep it only if it is a plain web address.
+		if site, err := fetcher.Canonical(res.Feed.Link); err == nil {
+			v.SiteURL = site
+		}
+		v.Subscribed, err = s.repo.SubscribedToURL(ctx, userID, v.FeedURL)
+		return v, err
+	}
+	return Verified{}, ErrNoFeed
+}
+
 func (s *Service) ListFolders(ctx context.Context, userID uint64) ([]Folder, error) {
 	return s.repo.ListFolders(ctx, userID)
 }
