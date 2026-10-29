@@ -37,7 +37,7 @@ func TestRunToolsOneRound(t *testing.T) {
 	fake := &llm.Fake{Replies: []llm.Message{call("call_1", "search", `{"q":"golang"}`), answer("推荐《Go 并发入门》")}}
 	history := []llm.Message{{Role: llm.RoleUser, Content: "推荐 Go 的文章"}}
 
-	produced, err := RunTools(context.Background(), fake, history, []Tool{searchTool(&query)})
+	produced, err := RunTools(context.Background(), fake, history, []Tool{searchTool(&query)}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestRunToolsReportsErrorsToModel(t *testing.T) {
 		call("c3", "broken", `{}`),
 		answer("抱歉，暂时查不到"),
 	}}
-	produced, err := RunTools(context.Background(), fake, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, []Tool{searchTool(&query), failing})
+	produced, err := RunTools(context.Background(), fake, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, []Tool{searchTool(&query), failing}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestRunToolsStopsAfterMaxRounds(t *testing.T) {
 	for range maxToolRounds + 1 {
 		fake.Replies = append(fake.Replies, call("c", "search", `{"q":"again"}`))
 	}
-	produced, err := RunTools(context.Background(), fake, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, []Tool{searchTool(&query)})
+	produced, err := RunTools(context.Background(), fake, []llm.Message{{Role: llm.RoleUser, Content: "hi"}}, []Tool{searchTool(&query)}, nil)
 	if !errors.Is(err, ErrTooManyToolRounds) {
 		t.Fatalf("err = %v, want ErrTooManyToolRounds", err)
 	}

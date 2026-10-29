@@ -47,10 +47,15 @@ type ToolDef struct {
 type Request struct {
 	Messages []Message
 	Tools    []ToolDef
+	// MaxTokens caps the length of the reply; 0 leaves it to the provider.
+	MaxTokens int
 }
 
 type Client interface {
 	// Chat sends the conversation and returns the model's next message: either
-	// a text answer or a request to call tools.
-	Chat(ctx context.Context, req Request) (Message, error)
+	// a text answer or a request to call tools. The text is streamed: onText
+	// (if not nil) gets each piece as it arrives. If the stream breaks, Chat
+	// returns the text received so far together with the error, without tool
+	// calls, whose arguments may be cut off.
+	Chat(ctx context.Context, req Request, onText func(string)) (Message, error)
 }

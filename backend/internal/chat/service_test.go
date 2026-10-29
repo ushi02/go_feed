@@ -3,7 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -28,7 +28,8 @@ func (f *fakeSubs) Verify(ctx context.Context, userID uint64, raw string) (subsc
 	if v, ok := f.real[raw]; ok {
 		return v, nil
 	}
-	return subscription.Verified{}, errors.New("no such host")
+	// Real network errors quote the URL, like net/http does.
+	return subscription.Verified{}, fmt.Errorf(`Get "%s": no such host`, raw)
 }
 
 type fakeSearch struct{ userIDs []uint64 }
@@ -43,7 +44,7 @@ func newTestService(replies ...llm.Message) (*Service, *fakeSubs, *fakeSearch) {
 		"https://real.example/": {FeedURL: "https://real.example/feed", Title: "真实博客", SiteURL: "https://real.example/"},
 	}}
 	srch := &fakeSearch{}
-	return NewService(&llm.Fake{Replies: replies}, subs, srch), subs, srch
+	return NewService(nil, &llm.Fake{Replies: replies}, subs, srch), subs, srch
 }
 
 func user(text string) []llm.Message { return []llm.Message{{Role: llm.RoleUser, Content: text}} }
@@ -56,7 +57,7 @@ func TestMadeUpBlogIsNeverShown(t *testing.T) {
 		call("c1", toolPropose, `{"url":"https://fake-blog.example/","reason":"写得很好"}`),
 		answer("推荐 https://fake-blog.example/ ，还有[另一个](https://also-fake.example/feed)咕"),
 	)
-	produced, err := svc.Reply(context.Background(), 1, user("推荐写 Go 的博客"))
+	produced, err := svc.Reply(context.Background(), 1, user("推荐写 Go 的博客"), Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestVerifiedBlogBecomesCard(t *testing.T) {
 		call("c2", toolPropose, `{"url":"https://real.example/","reason":"讲 Go 并发 https://spam.example 很清楚"}`),
 		answer("看看这篇 https://real.example/go?a=1&b=2 ，订阅地址 https://real.example/feed"),
 	)
-	produced, err := svc.Reply(context.Background(), 1, user("Go"))
+	produced, err := svc.Reply(context.Background(), 1, user("Go"), Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestToolsRunForSignedInUserOnly(t *testing.T) {
 		call("c3", toolPropose, `{"url":"https://real.example/","reason":"r","user_id":7}`),
 		answer("好"),
 	)
-	if _, err := svc.Reply(context.Background(), 42, user("hi")); err != nil {
+	if _, err := svc.Reply(context.Background(), 42, user("hi"), Events{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range append(subs.userIDs, srch.userIDs...) {
@@ -139,8 +140,8 @@ func TestToolsRunForSignedInUserOnly(t *testing.T) {
 // The persona goes first in every request, and the user's own message follows.
 func TestReplySendsSystemPrompt(t *testing.T) {
 	fake := &llm.Fake{Replies: []llm.Message{answer("咕")}}
-	svc := NewService(fake, &fakeSubs{}, &fakeSearch{})
-	if _, err := svc.Reply(context.Background(), 1, user("你好")); err != nil {
+	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{})
+	if _, err := svc.Reply(context.Background(), 1, user("你好"), Events{}); err != nil {
 		t.Fatal(err)
 	}
 	sent := fake.Requests[0]
@@ -178,11 +179,28 @@ func TestRemoveLinks(t *testing.T) {
 // A URL the user wrote themselves is not made up, so the answer may repeat it.
 func TestUserLinksAreKept(t *testing.T) {
 	svc, _, _ := newTestService(answer("你说的 https://user-said.example 我还没验证过"))
-	produced, err := svc.Reply(context.Background(), 1, user("https://user-said.example 怎么样"))
+	produced, err := svc.Reply(context.Background(), 1, user("https://user-said.example 怎么样"), Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(produced[0].Content, "https://user-said.example") {
 		t.Fatalf("user's own link removed: %q", produced[0].Content)
+	}
+}
+
+// The newest 20 messages may begin in the middle of a tool round. Sending a
+// tool result without its call is rejected by the API, so the window starts
+// at the first user message.
+func TestWindowStartsAtUserMessage(t *testing.T) {
+	ms := []llm.Message{
+		{Role: llm.RoleTool, ToolCallID: "c0", Content: "[]"},
+		answer("上一轮的回答"),
+		{Role: llm.RoleUser, Content: "新问题"},
+		call("c1", toolSearchEntries, `{}`),
+		{Role: llm.RoleTool, ToolCallID: "c1", Content: "[]"},
+	}
+	got := window(ms)
+	if len(got) != 3 || got[0].Content != "新问题" {
+		t.Fatalf("window = %+v", got)
 	}
 }

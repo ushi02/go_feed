@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -53,24 +55,40 @@ type wireFunction struct {
 }
 
 type wireRequest struct {
-	Model    string     `json:"model"`
-	Messages []Message  `json:"messages"`
-	Tools    []wireTool `json:"tools,omitempty"`
+	Model     string     `json:"model"`
+	Messages  []Message  `json:"messages"`
+	Tools     []wireTool `json:"tools,omitempty"`
+	MaxTokens int        `json:"max_tokens,omitempty"`
 	// Thinking mode is on by default. Recommending blogs needs no long
 	// reasoning, and turning it off makes replies faster and cheaper.
 	Thinking map[string]string `json:"thinking"`
 	Stream   bool              `json:"stream"`
 }
 
-type wireResponse struct {
+// wireChunk is one server-sent event of a streamed reply. Text arrives in
+// pieces; a tool call arrives as its ID and name first, then its arguments
+// in pieces, matched up by index.
+type wireChunk struct {
 	Choices []struct {
-		Message      Message `json:"message"`
-		FinishReason string  `json:"finish_reason"`
+		Delta struct {
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				Index    int    `json:"index"`
+				ID       string `json:"id"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"delta"`
 	} `json:"choices"`
 }
 
-func (d *DeepSeek) Chat(ctx context.Context, req Request) (Message, error) {
-	body := wireRequest{Model: d.model, Messages: req.Messages, Thinking: map[string]string{"type": "disabled"}}
+// maxReplyBytes bounds how much one streamed reply may hold in memory.
+const maxReplyBytes = 1 << 20
+
+func (d *DeepSeek) Chat(ctx context.Context, req Request, onText func(string)) (Message, error) {
+	body := wireRequest{Model: d.model, Messages: req.Messages, MaxTokens: req.MaxTokens, Thinking: map[string]string{"type": "disabled"}, Stream: true}
 	for _, t := range req.Tools {
 		body.Tools = append(body.Tools, wireTool{Type: "function", Function: wireFunction{Name: t.Name, Description: t.Description, Parameters: t.Parameters}})
 	}
@@ -89,21 +107,68 @@ func (d *DeepSeek) Chat(ctx context.Context, req Request) (Message, error) {
 		return Message{}, fmt.Errorf("deepseek: %w", err)
 	}
 	defer resp.Body.Close()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil {
-		return Message{}, fmt.Errorf("deepseek: read response: %w", err)
-	}
 	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		return Message{}, fmt.Errorf("deepseek: HTTP %d: %s", resp.StatusCode, truncate(string(raw), 300))
 	}
-	var out wireResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return Message{}, fmt.Errorf("deepseek: decode response: %w", err)
+	return readStream(resp.Body, onText)
+}
+
+// readStream reads server-sent events ("data: {...}" lines, ending with
+// "data: [DONE]") and puts the pieces back together into one message.
+func readStream(r io.Reader, onText func(string)) (Message, error) {
+	var text strings.Builder
+	var calls []ToolCall
+	partial := func(err error) (Message, error) {
+		return Message{Role: RoleAssistant, Content: text.String()}, fmt.Errorf("deepseek: stream: %w", err)
 	}
-	if len(out.Choices) == 0 {
-		return Message{}, errors.New("deepseek: response has no choices")
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64<<10), maxReplyBytes)
+	for sc.Scan() {
+		payload, ok := strings.CutPrefix(sc.Text(), "data:")
+		if !ok {
+			continue // blank separators and ": keep-alive" comments
+		}
+		payload = strings.TrimSpace(payload)
+		if payload == "[DONE]" {
+			return Message{Role: RoleAssistant, Content: text.String(), ToolCalls: calls}, nil
+		}
+		var chunk wireChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			return partial(fmt.Errorf("decode chunk: %w", err))
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
+		if delta.Content != "" {
+			if text.Len()+len(delta.Content) > maxReplyBytes {
+				return partial(errors.New("reply too long"))
+			}
+			text.WriteString(delta.Content)
+			if onText != nil {
+				onText(delta.Content)
+			}
+		}
+		for _, tc := range delta.ToolCalls {
+			if tc.Index < 0 || tc.Index > 16 {
+				return partial(fmt.Errorf("tool call index %d out of range", tc.Index))
+			}
+			for len(calls) <= tc.Index {
+				calls = append(calls, ToolCall{Type: "function"})
+			}
+			c := &calls[tc.Index]
+			if tc.ID != "" {
+				c.ID = tc.ID
+			}
+			c.Function.Name += tc.Function.Name
+			c.Function.Arguments += tc.Function.Arguments
+		}
 	}
-	return out.Choices[0].Message, nil
+	if err := sc.Err(); err != nil {
+		return partial(err)
+	}
+	return partial(io.ErrUnexpectedEOF) // the stream ended without [DONE]
 }
 
 func truncate(s string, n int) string {

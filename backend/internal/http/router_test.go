@@ -55,7 +55,7 @@ func TestRateLimitBehindTrustedProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	// httptest requests come from 192.0.2.1, playing the role of Caddy.
 	t.Setenv("TRUSTED_PROXIES", "192.0.2.1")
-	r := NewRouter(nil)
+	r := NewRouter(nil, nil)
 	for i := 0; i < 5; i++ {
 		if code := register(r, "203.0.113.1"); code != 400 {
 			t.Fatalf("request %d = %d, want 400", i+1, code)
@@ -72,7 +72,7 @@ func TestRateLimitBehindTrustedProxy(t *testing.T) {
 func TestRateLimitIgnoresSpoofedForwardedFor(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Setenv("TRUSTED_PROXIES", "")
-	r := NewRouter(nil)
+	r := NewRouter(nil, nil)
 	for i := 0; i < 5; i++ {
 		register(r, "203.0.113."+string(rune('1'+i)))
 	}

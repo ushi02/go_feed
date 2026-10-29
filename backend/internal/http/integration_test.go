@@ -319,7 +319,7 @@ type client struct {
 }
 
 func newClient(t *testing.T, username string) *client {
-	c := &client{t: t, router: apihttp.NewRouter(database)}
+	c := &client{t: t, router: apihttp.NewRouter(database, nil)}
 	c.do("POST", "/api/auth/register", map[string]string{"username": username, "password": "password123"}, 201, nil)
 	return c
 }

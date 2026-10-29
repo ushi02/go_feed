@@ -134,6 +134,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 | MySQL 不对外 | `nc -z -w3 <Elastic IP> 3306 && echo OPEN \|\| echo closed` | `closed` |
 | cookie 是 Secure | 浏览器里注册、登录，在开发者工具 → Application → Cookies 里看 | `go_feed_session` 勾选了 Secure 和 HttpOnly |
 | 完整流程 | 注册 → 订阅一个博客 → 等几秒 → 文章出现 → 搜索一个关键词 | 都正常 |
+| 咕咕的流式输出 | 填好 `DEEPSEEK_API_KEY` 后和咕咕聊一句 | 回答是一段一段出现的，不是等全部生成完才一下子出现。如果是一下子出现，说明 Caddy 的压缩把流式输出攒起来了，要在 `Caddyfile` 里让 `text/event-stream` 不压缩 |
 
 在**服务器上**执行：
 

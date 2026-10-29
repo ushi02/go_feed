@@ -139,23 +139,34 @@ func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
 // result is matched to its tool name through the assistant's tool call ID,
 // so text from any other tool, or a failed verification, never becomes a card.
 func Cards(messages []llm.Message) []Card {
-	proposeCalls := map[string]bool{}
+	proposals := map[string]bool{}
 	cards := []Card{}
 	for _, m := range messages {
-		for _, c := range m.ToolCalls {
-			if c.Function.Name == toolPropose {
-				proposeCalls[c.ID] = true
-			}
-		}
-		if m.Role != llm.RoleTool || !proposeCalls[m.ToolCallID] {
-			continue
-		}
-		var c Card
-		if json.Unmarshal([]byte(m.Content), &c) == nil && c.Verified && c.FeedURL != "" {
+		noteProposals(m, proposals)
+		if c, ok := cardOf(m, proposals); ok {
 			cards = append(cards, c)
 		}
 	}
 	return cards
+}
+
+// noteProposals remembers the IDs of propose_subscription calls in m.
+func noteProposals(m llm.Message, proposals map[string]bool) {
+	for _, c := range m.ToolCalls {
+		if c.Function.Name == toolPropose {
+			proposals[c.ID] = true
+		}
+	}
+}
+
+// cardOf returns the card in m if m is the successful result of a proposal.
+func cardOf(m llm.Message, proposals map[string]bool) (Card, bool) {
+	var c Card
+	if m.Role != llm.RoleTool || !proposals[m.ToolCallID] {
+		return c, false
+	}
+	ok := json.Unmarshal([]byte(m.Content), &c) == nil && c.Verified && c.FeedURL != ""
+	return c, ok
 }
 
 // toJSON keeps & < > as they are (json.Marshal would write \u0026), so URLs

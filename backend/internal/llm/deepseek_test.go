@@ -26,8 +26,18 @@ func TestDeepSeekRequestAndToolCallResponse(t *testing.T) {
 		}
 		body, _ := io.ReadAll(r.Body)
 		json.Unmarshal(body, &got)
-		io.WriteString(w, `{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":null,
-			"tool_calls":[{"id":"call_1","type":"function","function":{"name":"search","arguments":"{\"q\":\"go\"}"}}]}}]}`)
+		// A streamed tool call: ID and name first, arguments split over two chunks.
+		io.WriteString(w, `data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"search","arguments":""}}]}}]}
+
+: keep-alive
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":"}}]}}]}
+
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"go\"}"}}]},"finish_reason":"tool_calls"}]}
+
+data: [DONE]
+
+`)
 	}))
 	defer srv.Close()
 
@@ -36,7 +46,7 @@ func TestDeepSeekRequestAndToolCallResponse(t *testing.T) {
 		{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "call_0", Type: "function", Function: FunctionCall{Name: "search", Arguments: `{"q":"golang"}`}}}},
 		{Role: RoleTool, ToolCallID: "call_0", Content: "[]"},
 	}
-	msg, err := testClient(srv.URL).Chat(context.Background(), Request{Messages: history, Tools: []ToolDef{searchTool}})
+	msg, err := testClient(srv.URL).Chat(context.Background(), Request{Messages: history, Tools: []ToolDef{searchTool}, MaxTokens: 800}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,8 +54,8 @@ func TestDeepSeekRequestAndToolCallResponse(t *testing.T) {
 		t.Fatalf("tool call not parsed: %+v", msg)
 	}
 
-	if got["model"] != "deepseek-flash" || got["stream"] != false {
-		t.Errorf("model/stream: %v %v", got["model"], got["stream"])
+	if got["model"] != "deepseek-flash" || got["stream"] != true || got["max_tokens"] != 800.0 {
+		t.Errorf("model/stream/max_tokens: %v %v %v", got["model"], got["stream"], got["max_tokens"])
 	}
 	if th, _ := got["thinking"].(map[string]any); th["type"] != "disabled" {
 		t.Errorf("thinking not disabled: %v", got["thinking"])
@@ -72,9 +82,39 @@ func TestDeepSeekErrorDoesNotLeakKey(t *testing.T) {
 		io.WriteString(w, `{"error":{"message":"Authentication Fails"}}`)
 	}))
 	defer srv.Close()
-	_, err := testClient(srv.URL).Chat(context.Background(), Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	_, err := testClient(srv.URL).Chat(context.Background(), Request{Messages: []Message{{Role: RoleUser, Content: "hi"}}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "HTTP 401") || strings.Contains(err.Error(), "sk-secret") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// Text arrives piece by piece and each piece is passed on as it comes.
+func TestDeepSeekStreamsText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"咕，\"}}]}\n\n"+
+			"data: {\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}\n\ndata: [DONE]\n\n")
+	}))
+	defer srv.Close()
+	var pieces []string
+	msg, err := testClient(srv.URL).Chat(context.Background(), Request{}, func(s string) { pieces = append(pieces, s) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if msg.Content != "咕，你好" || msg.Role != RoleAssistant || strings.Join(pieces, "|") != "咕，|你好" {
+		t.Fatalf("msg %+v, pieces %q", msg, pieces)
+	}
+}
+
+// A stream that breaks off returns the text so far with an error, and drops
+// tool calls, whose arguments may be cut off.
+func TestDeepSeekBrokenStreamKeepsText(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"前半段\",\"tool_calls\":[{\"index\":0,\"id\":\"c\",\"function\":{\"name\":\"search\",\"arguments\":\"{\\\"q\"}}]}}]}\n\n")
+	}))
+	defer srv.Close()
+	msg, err := testClient(srv.URL).Chat(context.Background(), Request{}, nil)
+	if err == nil || msg.Content != "前半段" || len(msg.ToolCalls) != 0 {
+		t.Fatalf("msg %+v, err %v", msg, err)
 	}
 }
 
@@ -102,7 +142,7 @@ func TestDeepSeekLive(t *testing.T) {
 	msg, err := client.Chat(ctx, Request{
 		Messages: []Message{{Role: RoleUser, Content: "用 search 工具搜一下关于 Go 的文章。"}},
 		Tools:    []ToolDef{searchTool},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

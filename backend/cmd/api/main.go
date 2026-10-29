@@ -6,6 +6,7 @@ import (
 
 	"github.com/ushi02/go_feed/backend/internal/db"
 	apihttp "github.com/ushi02/go_feed/backend/internal/http"
+	"github.com/ushi02/go_feed/backend/internal/llm"
 )
 
 func main() {
@@ -20,7 +21,14 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	router := apihttp.NewRouter(database)
+	// The chatbot is optional: without a key the rest of the app still runs.
+	var llmClient llm.Client
+	if ds, err := llm.NewDeepSeekFromEnv(); err != nil {
+		log.Printf("chatbot disabled: %v", err)
+	} else {
+		llmClient = ds
+	}
+	router := apihttp.NewRouter(database, llmClient)
 	// STATIC_DIR points at the built frontend; empty in local Vite development.
 	if dir := os.Getenv("STATIC_DIR"); dir != "" {
 		apihttp.ServeFrontend(router, dir)

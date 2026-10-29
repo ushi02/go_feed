@@ -18,6 +18,8 @@ services:
     build: .
     environment:
       MYSQL_DSN: root:123456@tcp(mysql:3306)/go_feed?charset=utf8mb4&parseTime=true&loc=UTC
+      # Read from .env in this folder (git-ignored). Empty: the chat says it is not configured.
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
     ports:
       - "${API_PORT:-18080}:8080"
     healthcheck:
