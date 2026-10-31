@@ -6,6 +6,15 @@
 
 ---
 
+## 部署脚本没有 pipefail（M5-1 CD，2026-10-31）
+- **现象：** 第一次自动部署成功后看日志，发现步骤的 shell 是 `/usr/bin/bash -e {0}`，没有 `-o pipefail`。
+- **原因：** GitHub Actions 只有在步骤里明确写了 `shell: bash` 时，才会用 `bash -eo pipefail`；不写就只有 `-e`。没有 pipefail 时，`curl ... | jq ...` 这一行的成败只看最后的 jq，curl 失败了也不会停下来。我在本地模拟时手动加了 `-eo pipefail`，所以没测出来。
+- **解决：** 部署步骤加上 `shell: bash`。顺便把 checkout、setup-go、setup-node 升级到 v7（旧版本用的 Node.js 20 已经停止维护），升级前逐个看了大版本的更新说明，确认对我们的用法没有影响。
+- **验证：** push 以后 CI 的 `go`、`frontend` 通过；下一次部署的日志里，shell 那一行应该是 `bash --noprofile --norc -eo pipefail {0}`。
+- **学到了：** 本地模拟要和真实环境的条件一致，连 shell 的启动参数也算。第一次在真实环境运行后，要回头看一遍日志，确认它跑的方式和自己以为的一样。
+
+---
+
 ## deployhook 被打包进了 gin 和 gorm（M5-1 CD，2026-10-31）
 - **现象：** 在服务器上编译 deployhook 时，下载列表里有 gin、gorm、quic-go、mongo-driver、protobuf。deployhook 只需要验证 JWT，用不到这些。编译出来的程序有 20MB。
 - **原因：** 为了复用登录接口的限流代码，deployhook 导入了 `middleware` 包。这个包导入了 gin，还导入了 `account`，`account` 又导入了 gorm。Go 导入一个包时，会把它依赖的所有包一起编译进来。

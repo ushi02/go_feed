@@ -11,8 +11,8 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: backend/go.mod
           cache-dependency-path: backend/go.sum
@@ -26,8 +26,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22 # same as the Dockerfile
           cache: npm
@@ -51,6 +51,8 @@ jobs:
     # jq: no checkout, no third-party actions, no installed packages.
     steps:
       - name: Deploy this commit and wait
+        # Explicit bash adds pipefail: a failed curl in `curl | jq` stops the step.
+        shell: bash
         run: |
           # A fresh token for each request (they expire in minutes), masked in the log.
           get_token() {
