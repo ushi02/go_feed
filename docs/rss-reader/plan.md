@@ -97,9 +97,8 @@
 1. **CI/CD** → 验证：合并到 `main` 后不用登录服务器，网站自动更新，`/healthz` 正常
    - 2026-10-31：前端构建检查已加（`ci.yml` 的 `frontend` job，Node 22 与 Dockerfile 一致）。本地验证：现在构建通过；临时副本里加一个类型错误，构建以 exit 1 失败。push 后 GitHub 上 `go` 和 `frontend` 两个 job 都通过（run 41177183682）
    - CI 已有（`.github/workflows/ci.yml`：`go vet`、`go test -race`），还要加前端构建检查（`npm run build`，TypeScript 写错时 CI 就失败）
-   - 2026-10-31：CD 的 workflow（`ci.yml` 的 `deploy` job）和 AWS 设置步骤（deploy-ec2.md 第 9 步）已写好；等作者在 AWS 和 GitHub 里配置完，合并到 `main` 时验证。没配置变量时 `deploy` 自动跳过
-   - CD 方案（2026-10-30 提出，待作者确认）：CI 全部通过 → GitHub OIDC 换临时 AWS 凭证 → SSM Run Command 让服务器执行 `git pull && docker compose -f docker-compose.prod.yml up -d --build` → 访问 `/healthz` 确认。不用 SSH：22 端口不用开放给 GitHub，GitHub 里也不存长期有效的密钥
-   - 附带的好处：EC2 绑定 SSM 的角色后，可以用 Session Manager 在浏览器里登录服务器，不受本机 IP 变化影响
+   - 2026-10-31：CD 改成服务器自己验证 GitHub 的 OIDC 令牌（deployhook）。原来的 OIDC + SSM 方案需要 AWS 的「Activate advanced features」，这会永久取消花费上限，所以不用。代码、测试、workflow、设置步骤（deploy-ec2.md 第 9 步）已写好，本地测试通过；等作者在服务器上装好 deployhook、在 GitHub 填 `DEPLOY_URL` 后验证。没填变量时 `deploy` 自动跳过
+   - 设计时检查出的问题和对策：只部署令牌里写的 commit（不部署 `main` 上还没测完的新 commit）；拒绝比当前版本旧的 commit（防止旧令牌被重放来回退）；按 IP 限流（验证失败时库会重新下载 GitHub 公钥）；令牌放请求头、在日志里打码；`deploy` job 只跑 curl 和 jq
 2. **英文版** → 验证：浏览器语言是英文时，打开页面直接显示英文；切换按钮可以来回切换，刷新后保持选择
    - 方案（待作者确认）：前端用一个字典文件 `messages.ts`，不引入 i18n 库（文字只有几十条）；后端的中文报错改成返回错误码，由前端翻译；咕咕的提示词加上「用户用什么语言，就用什么语言回答」
    - 文章内容是中文的，这是项目定位，不翻译
@@ -121,6 +120,8 @@
 - 备份放到机器之外（EBS 快照或定期下载到本机）
 - AWS Billing 设预算提醒
 - AWS 额度约 2027-04-14 到期，2027-03-31 之前决定之后怎么办（见 deploy-ec2.md 最后一节）
+  - 2026-10-31 查官方文档确认：免费方案在「满 6 个月」或「额度用完」时结束（先到为准），**结束后账号自动关闭**，90 天内升级才能恢复。升级成付费方案（Paid plan）会保留剩余额度，也还能设花费上限；不要「开通高级功能」（不可逆，花费上限永久取消）
+  - 当日剩余额度 140 美元，估计每月约 20 美元（未核实），够用到 6 个月期满。所以在 2027-04-14 之前升级成付费方案，并立刻设花费上限
 
 ## 可复用的现有代码（不要重写）
 

@@ -160,113 +160,123 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 ## 第 9 步：自动部署（CD）
 
-做完以后：合并到 `main` → CI 通过 → GitHub 让服务器自己执行 `git pull` 和重新构建 → 访问 `/healthz` 确认。不用再 SSH 登录。
+做完以后：合并到 `main` → CI 通过 → GitHub 请服务器部署这个 commit → 访问 `/healthz` 确认。不用再 SSH 登录。
 
 ```
-GitHub Actions ──(OIDC 令牌)──> AWS STS ──> 临时凭证（1 小时内有效）
-      │
-      └──(ssm:SendCommand)──> 服务器上的 SSM Agent ──> git pull && docker compose up -d --build
+GitHub Actions ──(GitHub 签名的 OIDC 令牌)──> https://域名/deploy ──Caddy──> deployhook（服务器上的小程序）
+                                                                           │ 用 GitHub 的公钥验证令牌
+                                                                           └─> git merge 这个 commit && docker compose up -d --build
 ```
 
 为什么这样做：
-- **不用 SSH**：22 端口继续只对你自己的 IP 开放，不需要对 GitHub 开放。
-- **GitHub 里不存长期有效的密钥**：每次运行时，GitHub 用 OIDC 证明「我是 `ushi02/go_feed` 仓库的 `main` 分支」，换来一份很快就会过期的临时凭证。
-- **权限最小**：部署角色只能对这一台实例执行命令，不能做别的。
+- **不存密钥**：每次部署，GitHub 现场签发一张几分钟就过期的令牌，证明「我是 `ushi02/go_feed` 仓库 `main` 分支上的 CI」。服务器用 GitHub 公开的公钥验证，不需要任何共享密码。
+- **不开新端口**：请求走现有的 443，由 Caddy 转给 deployhook。deployhook 只监听 Docker 内部的地址（`172.17.0.1:9090`），外网连不到。22 端口继续只对你自己的 IP 开放。
+- **不用 AWS 的高级功能**：AWS 原生的 OIDC 要「Activate advanced features」，那样会永久取消花费上限，所以改成服务器自己验证。
 
-> 账号是新版控制台的「项目」模式，有些功能用不了（之前就发现不能切换区域）。如果下面哪一步找不到菜单或提示没有权限，先停下来告诉 Claude，不要换别的做法硬做。
+deployhook 的检查规则（代码在 `backend/internal/deployhook/`）：
+- 令牌：签名是 GitHub 的、没过期、接收方是 `gugu-deploy`、仓库 ID 是 `1392363315`、分支是 `main`、事件是 `push`、workflow 是 `ci.yml`
+- 只部署令牌里写的那个 commit（CI 测过的那个），不部署 `main` 上更新的、还没测完的 commit
+- 拒绝比当前版本更旧的 commit，防止有人用旧令牌把网站退回旧版本
+- 每个 IP 每分钟最多 20 次请求
+- 被拒绝的原因记在服务器日志里（`journalctl -u deployhook`），令牌本身不记
 
-### 9-1 给 EC2 绑定 SSM 角色（让服务器能接收命令）
+> 如果之前按旧版的第 9 步在 AWS 里建过 `go-feed-ec2-ssm` 之类的角色，留着不影响，也可以删掉。
 
-1. IAM → Roles → Create role → Trusted entity 选 **AWS service**，Use case 选 **EC2** → 权限勾选 `AmazonSSMManagedInstanceCore` → 名字填 `go-feed-ec2-ssm` → 创建
-2. EC2 → 选中 `go-feed` 实例 → Actions → Security → **Modify IAM role** → 选 `go-feed-ec2-ssm` → 保存
-3. Ubuntu 24.04 自带 SSM Agent，但它要重启后才会用上新角色。SSH 登录服务器执行：
-   ```sh
-   sudo snap restart amazon-ssm-agent
-   ```
+### 9-1 把新代码合并到 `main`
 
-**检查：** 等 1～2 分钟，Systems Manager → **Fleet Manager** 里出现这台实例，状态是 Online。
+开 PR 把 `refactor` 合并到 `main`。这时 GitHub 里还没有 `DEPLOY_URL` 变量，CI 会跳过 `deploy`，不会报错。
 
-（附带的好处：以后 IP 变了 SSH 连不上时，可以在 EC2 → Connect → **Session Manager** 里直接在浏览器里登录服务器。）
+### 9-2 在服务器上更新代码，先检查 Caddyfile
 
-### 9-2 让 AWS 信任 GitHub（OIDC 身份提供商）
+SSH 登录服务器：
 
-IAM → Identity providers → Add provider：
-- Provider type：**OpenID Connect**
-- Provider URL：`https://token.actions.githubusercontent.com`
-- Audience：`sts.amazonaws.com`
-
-**检查：** 列表里出现 `token.actions.githubusercontent.com`。
-
-### 9-3 创建部署角色（GitHub 扮演的角色）
-
-IAM → Roles → Create role → Trusted entity 选 **Custom trust policy**，粘贴下面的内容，把 `<账号ID>` 换成你的 12 位 AWS 账号 ID（控制台右上角能看到）：
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Principal": { "Federated": "arn:aws:iam::<账号ID>:oidc-provider/token.actions.githubusercontent.com" },
-    "Action": "sts:AssumeRoleWithWebIdentity",
-    "Condition": {
-      "StringEquals": {
-        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:ushi02/go_feed:ref:refs/heads/main"
-      }
-    }
-  }]
-}
+```sh
+cd ~/go_feed
+git status                  # 应该显示 working tree clean，并且在 main 分支上
+git pull --ff-only
+# Caddyfile 写错的话 Caddy 起不来，整个网站会挂掉，所以先单独检查一遍
+docker run --rm -v "$PWD/Caddyfile":/etc/caddy/Caddyfile:ro -e DOMAIN=gugu.ushi02.live \
+  caddy:2.10-alpine caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 ```
 
-`sub` 这一条是关键：只有 `ushi02/go_feed` 仓库的 `main` 分支能扮演这个角色。别的仓库、别的分支，甚至这个仓库的 PR，都拿不到凭证。
+**检查：** 最后一行是 `Valid configuration`。然后再更新服务：
 
-下一页不勾选任何现成的权限，直接 Next，名字填 `go-feed-github-deploy`，创建。然后打开这个角色 → Add permissions → **Create inline policy** → 选 JSON，粘贴下面的内容（`<账号ID>` 和 `<实例ID>` 换成你自己的，实例 ID 形如 `i-0abc...`）：
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": "ssm:SendCommand",
-      "Resource": [
-        "arn:aws:ec2:ap-southeast-2:<账号ID>:instance/<实例ID>",
-        "arn:aws:ssm:ap-southeast-2::document/AWS-RunShellScript"
-      ]
-    },
-    {
-      "Effect": "Allow",
-      "Action": "ssm:GetCommandInvocation",
-      "Resource": "*"
-    }
-  ]
-}
+```sh
+docker compose -f docker-compose.prod.yml up -d --build    # 会重建 caddy（多了 extra_hosts），网站中断一两秒
 ```
 
-策略名填 `deploy-go-feed`。（`GetCommandInvocation` 只是查询命令的执行结果，AWS 不支持把它限定到某一台实例，所以只能写 `*`。）
+**检查：** 浏览器打开网站正常；`curl -i https://gugu.ushi02.live/deploy/status` 返回 `502`（deployhook 还没装，这时 502 是正常的）。
 
-**检查：** 角色页面的 ARN 形如 `arn:aws:iam::<账号ID>:role/go-feed-github-deploy`，复制下来，下一步要用。
+### 9-3 安装 deployhook
 
-### 9-4 在 GitHub 里填两个变量
+服务器上没装 Go，所以借用 Go 的 Docker 镜像来编译（构建网站时已经下载过这个镜像）：
+
+```sh
+cd ~/go_feed
+docker run --rm -v "$PWD/backend":/src:ro -v /tmp/deployhook-build:/out -w /src \
+  -e CGO_ENABLED=0 golang:1.26 go build -o /out/deployhook ./cmd/deployhook
+sudo install -m 755 /tmp/deployhook-build/deployhook /usr/local/bin/deployhook
+sudo rm -rf /tmp/deployhook-build
+```
+
+确认 Docker 内部的地址是不是 `172.17.0.1`，再确认防火墙没开：
+
+```sh
+ip -4 addr show docker0     # 应该看到 inet 172.17.0.1/16
+sudo ufw status             # 应该是 Status: inactive
+```
+
+（如果地址不是 `172.17.0.1`，或者 ufw 是开着的，先停下来告诉 Claude。）
+
+然后注册成系统服务，开机自动启动，挂了自动重启：
+
+```sh
+sudo cp scripts/deployhook.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now deployhook
+```
+
+**检查（三条都要过）：**
+
+```sh
+journalctl -u deployhook -n 5
+# 看到 deployhook listening on 172.17.0.1:9090, repo /home/ubuntu/go_feed
+
+docker compose -f docker-compose.prod.yml exec caddy wget -qO- http://host.docker.internal:9090/deploy/status
+# 看到 401 Unauthorized：Caddy 的容器能连到 deployhook，没带令牌被拒绝了，这是对的
+
+curl -i https://gugu.ushi02.live/deploy/status
+# 在自己的 Mac 上执行：HTTP/2 401，内容 {"error":"missing token"}
+```
+
+### 9-4 在 GitHub 里填一个变量
 
 GitHub 仓库 → Settings → Secrets and variables → Actions → **Variables** 标签页 → New repository variable：
 
 | 名字 | 值 |
 |---|---|
-| `DEPLOY_ROLE_ARN` | 上一步复制的角色 ARN |
-| `DEPLOY_INSTANCE_ID` | 实例 ID，`i-0abc...` |
+| `DEPLOY_URL` | `https://gugu.ushi02.live`（末尾不加 `/`） |
 
-这两个值都不是密钥，泄露了也没法用（别人没法冒充你的仓库），所以放在 Variables 里，不放在 Secrets 里。没填这两个变量时，CI 会跳过部署这一步，不会报错。
+这只是网址，不是密钥，所以放在 Variables 里。
+
+顺便确认 GitHub 账号开启了两步验证（Settings → Password and authentication）：能往 `main` 推代码的人就能部署，账号被盗是这套方案剩下的最大风险。
 
 ### 9-5 试一次
 
-开 PR 把 `refactor` 合并到 `main`。GitHub → Actions 里能看到 `go`、`frontend` 通过后，`deploy` 开始运行。
+不用新提交：GitHub → Actions → 打开 `main` 最新的那次 CI → **Re-run all jobs**。服务器上已经是这个 commit 了，再部署一次同一个 commit 是允许的。
 
 **检查：**
-- `deploy` 是绿勾，日志最后打印出服务器上的 `git log` 和 `/healthz` 的结果
-- 服务器上 `git log --oneline -1` 是 `main` 最新的 commit
+- `deploy` 是绿勾。日志里能看到每 10 秒一行状态，最后是 `"state":"succeeded"` 和这次的 commit，然后是 `/healthz` 的结果
+- 日志里令牌显示成 `***`
+- 服务器上 `journalctl -u deployhook -n 20` 里有 `deployed <commit>`
 
-部署失败时，`deploy` 的日志里会打印服务器上命令的报错输出。构建失败不会影响网站：`docker compose up --build` 构建失败时，正在运行的旧容器不会被替换。
+第一次真实部署如果被拒绝，`journalctl -u deployhook` 里会写是哪一项没通过（比如 `workflow_ref "..."`），把这一行发给 Claude。
+
+### 以后要注意的
+
+- **deployhook 改不了自己。** 改了 `backend/internal/deployhook/` 或 `backend/cmd/deployhook/` 以后，要在服务器上重做 9-3 的编译和 `install`，再 `sudo systemctl restart deployhook`。
+- **Caddy 只在启动时读 Caddyfile。** 改了 Caddyfile，自动部署不会让它生效：先按 9-2 检查，再 `docker compose -f docker-compose.prod.yml restart caddy`。
+- 部署失败不会影响网站：`docker compose up --build` 构建失败时，正在运行的旧容器不会被替换。
 
 ## 日常操作
 

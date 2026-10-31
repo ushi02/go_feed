@@ -22,7 +22,8 @@ func NewLimiter() *Limiter {
 	return &Limiter{local: map[string]counter{}}
 }
 
-func (l *Limiter) allow(key string, max int64, period time.Duration) bool {
+// Allow counts one request for key and reports whether it is within max per period.
+func (l *Limiter) Allow(key string, max int64, period time.Duration) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -44,7 +45,7 @@ func (l *Limiter) allow(key string, max int64, period time.Duration) bool {
 
 func (l *Limiter) Middleware(name string, max int64, period time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !l.allow("auth:"+name+":"+c.ClientIP(), max, period) {
+		if !l.Allow("auth:"+name+":"+c.ClientIP(), max, period) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts; try again later"})
 			return
 		}
