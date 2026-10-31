@@ -12,7 +12,7 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/ushi02/go_feed/backend/internal/deployhook"
-	"github.com/ushi02/go_feed/backend/internal/middleware"
+	"github.com/ushi02/go_feed/backend/internal/ratelimit"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 		},
 		Timeout: 20 * time.Minute,
 	}
-	s := &deployhook.Server{Verifier: verifier, Deployer: deployer, Limiter: middleware.NewLimiter()}
+	s := &deployhook.Server{Verifier: verifier, Deployer: deployer, Limiter: ratelimit.New()}
 
 	srv := &http.Server{
 		Addr:    addr,

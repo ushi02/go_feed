@@ -28,6 +28,8 @@ backend/
     fetcher/              抓取 RSS、Discover、HTML 清理、SSRF 防护
     worker/               调度、有界并发、按域名限流
     middleware/           登录校验、Origin 校验、限流
+    ratelimit/            内存里的限流计数，只用标准库（middleware 和 deployhook 共用）
+    deployhook/           验证 GitHub OIDC 令牌后部署（cmd/deployhook，跑在宿主机上）
     httpx/                handler 共用的小工具（Fail、ParseID、UserID）
     http/router.go        路由
     db/                   连接和迁移

@@ -2,45 +2,20 @@ package middleware
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ushi02/go_feed/backend/internal/ratelimit"
 )
 
-type counter struct {
-	n       int
-	expires time.Time
-}
-
+// Limiter limits the auth endpoints per client IP.
 type Limiter struct {
-	mu    sync.Mutex
-	local map[string]counter
+	*ratelimit.Limiter
 }
 
 func NewLimiter() *Limiter {
-	return &Limiter{local: map[string]counter{}}
-}
-
-// Allow counts one request for key and reports whether it is within max per period.
-func (l *Limiter) Allow(key string, max int64, period time.Duration) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	now := time.Now()
-	if len(l.local) > 10000 {
-		for k, v := range l.local {
-			if now.After(v.expires) {
-				delete(l.local, k)
-			}
-		}
-	}
-	v := l.local[key]
-	if now.After(v.expires) {
-		v = counter{expires: now.Add(period)}
-	}
-	v.n++
-	l.local[key] = v
-	return int64(v.n) <= max
+	return &Limiter{ratelimit.New()}
 }
 
 func (l *Limiter) Middleware(name string, max int64, period time.Duration) gin.HandlerFunc {
