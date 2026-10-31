@@ -95,8 +95,9 @@
 按作者定的顺序做。前 3 项方向已经明确；第 4、5 项要先讨论清楚「要什么」，再定怎么做。
 
 1. **CI/CD** → 验证：合并到 `main` 后不用登录服务器，网站自动更新，`/healthz` 正常
-   - 2026-10-31：前端构建检查已加（`ci.yml` 的 `frontend` job，Node 22 与 Dockerfile 一致）。本地验证：现在构建通过；临时副本里加一个类型错误，构建以 exit 1 失败。push 后 CI 的实际结果待确认
+   - 2026-10-31：前端构建检查已加（`ci.yml` 的 `frontend` job，Node 22 与 Dockerfile 一致）。本地验证：现在构建通过；临时副本里加一个类型错误，构建以 exit 1 失败。push 后 GitHub 上 `go` 和 `frontend` 两个 job 都通过（run 41177183682）
    - CI 已有（`.github/workflows/ci.yml`：`go vet`、`go test -race`），还要加前端构建检查（`npm run build`，TypeScript 写错时 CI 就失败）
+   - 2026-10-31：CD 的 workflow（`ci.yml` 的 `deploy` job）和 AWS 设置步骤（deploy-ec2.md 第 9 步）已写好；等作者在 AWS 和 GitHub 里配置完，合并到 `main` 时验证。没配置变量时 `deploy` 自动跳过
    - CD 方案（2026-10-30 提出，待作者确认）：CI 全部通过 → GitHub OIDC 换临时 AWS 凭证 → SSM Run Command 让服务器执行 `git pull && docker compose -f docker-compose.prod.yml up -d --build` → 访问 `/healthz` 确认。不用 SSH：22 端口不用开放给 GitHub，GitHub 里也不存长期有效的密钥
    - 附带的好处：EC2 绑定 SSM 的角色后，可以用 Session Manager 在浏览器里登录服务器，不受本机 IP 变化影响
 2. **英文版** → 验证：浏览器语言是英文时，打开页面直接显示英文；切换按钮可以来回切换，刷新后保持选择

@@ -361,3 +361,21 @@ HTTP 429 Too Many Requests，附上一句提示。被拒绝的消息不保存，
 
 **Q：Node 版本怎么定的？**
 - 和 Dockerfile 里的 `node:22-alpine` 保持一致。CI 检查的环境和线上构建的环境不一致，CI 通过就不能说明线上能构建成功。
+
+## M5-1 自动部署（CD）
+
+**Q：你的项目怎么部署？**
+- 合并到 `main` → CI 的 `go`、`frontend` 都通过 → `deploy` job 用 OIDC 换临时 AWS 凭证 → 通过 SSM Run Command 让服务器执行 `git pull` 和 `docker compose up -d --build` → 最后访问 `/healthz` 确认。
+
+**Q：为什么不用 SSH 部署？**
+- SSH 部署要在 GitHub Secrets 里存一把长期有效的私钥，还要让 22 端口对 GitHub 的 IP 开放（GitHub 的 IP 范围很大）。私钥一旦泄露，别人就能登录服务器。
+- SSM 是服务器上的 Agent 主动连接 AWS 来取命令，不需要开放任何入站端口。
+
+**Q：OIDC 是什么，解决了什么问题？**
+- GitHub 每次运行时签发一个令牌，证明「我是 `ushi02/go_feed` 仓库 `main` 分支上的这次运行」。AWS 验证这个令牌后，发给它一份很快就会过期的临时凭证。
+- 所以 GitHub 里不存任何 AWS 密钥。部署角色的信任策略写死了 `repo:ushi02/go_feed:ref:refs/heads/main`，别的仓库、别的分支、PR 都换不到凭证。
+- 角色的权限也是最小的：只能对这一台实例执行 `AWS-RunShellScript`。
+
+**Q：部署失败了怎么办？网站会挂吗？**
+- 不会。`docker compose up --build` 先构建新镜像，构建失败时不会替换正在运行的旧容器。`deploy` job 会变红，日志里能看到服务器上的报错。
+- 两次部署同时触发时，`concurrency: deploy` 让它们排队执行，不会同时在服务器上构建。

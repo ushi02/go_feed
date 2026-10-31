@@ -158,6 +158,116 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 都通过以后，把 `plan.md` 里 M4-1 的「待在 Droplet 上验证」改成完成。
 
+## 第 9 步：自动部署（CD）
+
+做完以后：合并到 `main` → CI 通过 → GitHub 让服务器自己执行 `git pull` 和重新构建 → 访问 `/healthz` 确认。不用再 SSH 登录。
+
+```
+GitHub Actions ──(OIDC 令牌)──> AWS STS ──> 临时凭证（1 小时内有效）
+      │
+      └──(ssm:SendCommand)──> 服务器上的 SSM Agent ──> git pull && docker compose up -d --build
+```
+
+为什么这样做：
+- **不用 SSH**：22 端口继续只对你自己的 IP 开放，不需要对 GitHub 开放。
+- **GitHub 里不存长期有效的密钥**：每次运行时，GitHub 用 OIDC 证明「我是 `ushi02/go_feed` 仓库的 `main` 分支」，换来一份很快就会过期的临时凭证。
+- **权限最小**：部署角色只能对这一台实例执行命令，不能做别的。
+
+> 账号是新版控制台的「项目」模式，有些功能用不了（之前就发现不能切换区域）。如果下面哪一步找不到菜单或提示没有权限，先停下来告诉 Claude，不要换别的做法硬做。
+
+### 9-1 给 EC2 绑定 SSM 角色（让服务器能接收命令）
+
+1. IAM → Roles → Create role → Trusted entity 选 **AWS service**，Use case 选 **EC2** → 权限勾选 `AmazonSSMManagedInstanceCore` → 名字填 `go-feed-ec2-ssm` → 创建
+2. EC2 → 选中 `go-feed` 实例 → Actions → Security → **Modify IAM role** → 选 `go-feed-ec2-ssm` → 保存
+3. Ubuntu 24.04 自带 SSM Agent，但它要重启后才会用上新角色。SSH 登录服务器执行：
+   ```sh
+   sudo snap restart amazon-ssm-agent
+   ```
+
+**检查：** 等 1～2 分钟，Systems Manager → **Fleet Manager** 里出现这台实例，状态是 Online。
+
+（附带的好处：以后 IP 变了 SSH 连不上时，可以在 EC2 → Connect → **Session Manager** 里直接在浏览器里登录服务器。）
+
+### 9-2 让 AWS 信任 GitHub（OIDC 身份提供商）
+
+IAM → Identity providers → Add provider：
+- Provider type：**OpenID Connect**
+- Provider URL：`https://token.actions.githubusercontent.com`
+- Audience：`sts.amazonaws.com`
+
+**检查：** 列表里出现 `token.actions.githubusercontent.com`。
+
+### 9-3 创建部署角色（GitHub 扮演的角色）
+
+IAM → Roles → Create role → Trusted entity 选 **Custom trust policy**，粘贴下面的内容，把 `<账号ID>` 换成你的 12 位 AWS 账号 ID（控制台右上角能看到）：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Federated": "arn:aws:iam::<账号ID>:oidc-provider/token.actions.githubusercontent.com" },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:ushi02/go_feed:ref:refs/heads/main"
+      }
+    }
+  }]
+}
+```
+
+`sub` 这一条是关键：只有 `ushi02/go_feed` 仓库的 `main` 分支能扮演这个角色。别的仓库、别的分支，甚至这个仓库的 PR，都拿不到凭证。
+
+下一页不勾选任何现成的权限，直接 Next，名字填 `go-feed-github-deploy`，创建。然后打开这个角色 → Add permissions → **Create inline policy** → 选 JSON，粘贴下面的内容（`<账号ID>` 和 `<实例ID>` 换成你自己的，实例 ID 形如 `i-0abc...`）：
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "ssm:SendCommand",
+      "Resource": [
+        "arn:aws:ec2:ap-southeast-2:<账号ID>:instance/<实例ID>",
+        "arn:aws:ssm:ap-southeast-2::document/AWS-RunShellScript"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ssm:GetCommandInvocation",
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+策略名填 `deploy-go-feed`。（`GetCommandInvocation` 只是查询命令的执行结果，AWS 不支持把它限定到某一台实例，所以只能写 `*`。）
+
+**检查：** 角色页面的 ARN 形如 `arn:aws:iam::<账号ID>:role/go-feed-github-deploy`，复制下来，下一步要用。
+
+### 9-4 在 GitHub 里填两个变量
+
+GitHub 仓库 → Settings → Secrets and variables → Actions → **Variables** 标签页 → New repository variable：
+
+| 名字 | 值 |
+|---|---|
+| `DEPLOY_ROLE_ARN` | 上一步复制的角色 ARN |
+| `DEPLOY_INSTANCE_ID` | 实例 ID，`i-0abc...` |
+
+这两个值都不是密钥，泄露了也没法用（别人没法冒充你的仓库），所以放在 Variables 里，不放在 Secrets 里。没填这两个变量时，CI 会跳过部署这一步，不会报错。
+
+### 9-5 试一次
+
+开 PR 把 `refactor` 合并到 `main`。GitHub → Actions 里能看到 `go`、`frontend` 通过后，`deploy` 开始运行。
+
+**检查：**
+- `deploy` 是绿勾，日志最后打印出服务器上的 `git log` 和 `/healthz` 的结果
+- 服务器上 `git log --oneline -1` 是 `main` 最新的 commit
+
+部署失败时，`deploy` 的日志里会打印服务器上命令的报错输出。构建失败不会影响网站：`docker compose up --build` 构建失败时，正在运行的旧容器不会被替换。
+
 ## 日常操作
 
 ```sh
