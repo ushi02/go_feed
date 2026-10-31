@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>go_feed 部署复盘</title>
+<style>
+:root {
+  --bg: #f7f5f0; --surface: #ffffff; --surface-2: #f0ede6; --text: #1f1d1a; --muted: #6b665d;
+  --border: #e2ddd2; --accent: #2f6f5e; --accent-soft: #e3efe9; --warn: #9a5b13; --warn-soft: #f6ead9;
+  --blue: #2c5d8f; --blue-soft: #e2ebf5; --purple: #6a4c93; --purple-soft: #ece6f4; --code-bg: #f2efe8;
+  --red: #a63d32; --red-soft: #f6e1de;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161513; --surface: #1f1e1b; --surface-2: #282622; --text: #ece8e0; --muted: #a39d92;
+    --border: #36332d; --accent: #6fbfa6; --accent-soft: #1f3530; --warn: #e0a55c; --warn-soft: #3a2c1a;
+    --blue: #86b3e0; --blue-soft: #1d2a38; --purple: #b9a0dc; --purple-soft: #2c2438; --code-bg: #24221e;
+    --red: #e88a7f; --red-soft: #3a201d;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161513; --surface: #1f1e1b; --surface-2: #282622; --text: #ece8e0; --muted: #a39d92;
+  --border: #36332d; --accent: #6fbfa6; --accent-soft: #1f3530; --warn: #e0a55c; --warn-soft: #3a2c1a;
+  --blue: #86b3e0; --blue-soft: #1d2a38; --purple: #b9a0dc; --purple-soft: #2c2438; --code-bg: #24221e;
+  --red: #e88a7f; --red-soft: #3a201d;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.75 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 32px 16px 80px; }
+header.hero { padding: 24px 0 8px; }
+.eyebrow { font-size: 12px; letter-spacing: .12em; color: var(--accent); font-weight: 600; text-transform: uppercase; }
+h1 { font-size: 32px; line-height: 1.3; margin: 6px 0 8px; }
+h2 { font-size: 22px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+h2 .num { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 15px; }
+h3 { font-size: 17px; margin: 22px 0 8px; }
+p { margin: 8px 0; }
+.lede { color: var(--muted); font-size: 17px; }
+nav.toc { margin: 20px 0 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+nav.toc a { text-decoration: none; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: 14px; }
+nav.toc a:hover { border-color: var(--accent); color: var(--accent); }
+section.card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin: 20px 0; }
+.note { background: var(--warn-soft); border-left: 3px solid var(--warn); padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 15px; }
+.tip { background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 15px; }
+.bad { background: var(--red-soft); border-left: 3px solid var(--red); padding: 10px 14px; border-radius: 6px; margin: 12px 0; font-size: 15px; }
+code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .88em; background: var(--code-bg); padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.6 "SF Mono", Menlo, Consolas, monospace; }
+pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+.table-scroll { overflow-x: auto; margin: 10px 0; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 560px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-size: 13px; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+.tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; font-weight: 600; white-space: nowrap; }
+.tag.green { background: var(--accent-soft); color: var(--accent); }
+.tag.blue { background: var(--blue-soft); color: var(--blue); }
+.tag.orange { background: var(--warn-soft); color: var(--warn); }
+.tag.red { background: var(--red-soft); color: var(--red); }
+.tag.gray { background: var(--surface-2); color: var(--muted); }
+
+.diagram { display: grid; gap: 8px; justify-items: center; margin: 16px 0; }
+.row { display: flex; gap: 12px; align-items: stretch; justify-content: center; flex-wrap: wrap; width: 100%; }
+.box { border: 1.5px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 10px 16px; text-align: center; min-width: 170px; }
+.box strong { display: block; font-size: 15px; }
+.box small { color: var(--muted); font-size: 13px; display: block; }
+.box.green { border-color: var(--accent); background: var(--accent-soft); }
+.box.blue { border-color: var(--blue); background: var(--blue-soft); }
+.box.purple { border-color: var(--purple); background: var(--purple-soft); }
+.box.orange { border-color: var(--warn); background: var(--warn-soft); }
+.box.ext { border-style: dashed; background: transparent; }
+.frame { border: 1.5px dashed var(--muted); border-radius: 14px; padding: 14px; width: 100%; }
+.frame > .label { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 8px; text-align: center; }
+.frame .frame { border-color: var(--blue); }
+.arrow { color: var(--muted); font-size: 13px; text-align: center; line-height: 1.4; }
+.arrow b { display: block; font-size: 18px; color: var(--text); }
+
+.progress { display: grid; grid-template-columns: repeat(9, 1fr); gap: 6px; margin: 14px 0 6px; }
+.progress div { border-radius: 8px; padding: 8px 4px; text-align: center; font-size: 12px; line-height: 1.35; border: 1.5px solid var(--border); }
+.progress .done { background: var(--accent-soft); border-color: var(--accent); }
+.progress .half { background: var(--warn-soft); border-color: var(--warn); font-weight: 700; }
+.progress b { display: block; font-size: 15px; }
+@media (max-width: 640px) { .progress { grid-template-columns: repeat(3, 1fr); } }
+
+.timeline { list-style: none; padding: 0; margin: 12px 0; border-left: 2px solid var(--border); }
+.timeline li { position: relative; padding: 2px 0 14px 20px; }
+.timeline li::before { content: ""; position: absolute; left: -7px; top: 9px; width: 12px; height: 12px; border-radius: 50%; background: var(--accent); }
+.timeline li.wrong::before { background: var(--red); }
+.timeline .t { font-size: 13px; color: var(--muted); font-weight: 600; }
+
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
+.compare > div { border: 1.5px solid var(--border); border-radius: 12px; padding: 14px; background: var(--surface-2); }
+.compare h4 { margin: 0 0 6px; font-size: 15px; }
+dl.qa dt { font-weight: 700; margin-top: 14px; }
+dl.qa dd { margin: 4px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">go_feed · 部署复盘</div>
+  <h1>部署到 AWS：做了什么，为什么这样做</h1>
+  <p class="lede">整理自 2026-10-29 的两次对话、2026-10-30 的部署 session 和 <code>docs/rss-reader/deploy-ec2.md</code>。网站已经上线：<a href="https://gugu.ushi02.live">https://gugu.ushi02.live</a></p>
+  <nav class="toc">
+    <a href="#session">10-30 做了什么</a>
+    <a href="#status">现在的状态</a>
+    <a href="#arch">上线后的结构</a>
+    <a href="#steps">每一步的理由</a>
+    <a href="#logs">怎么读服务器输出</a>
+    <a href="#bug">一次错误的诊断</a>
+    <a href="#todo">还没做的</a>
+    <a href="#interview">面试会问什么</a>
+  </nav>
+</header>
+
+<section class="card" id="session">
+  <h2><span class="num">01</span>10-30 这个 session 按顺序做了什么</h2>
+  <ul class="timeline">
+    <li><span class="t">找回记录</span><br>你以为昨天的对话丢了。其实都保存在本机的 <code>~/.claude/projects/-Users-ushi-dev-go-project-go-feed/</code> 里：部署和 chatbot 的那次以 <code>f12a2d1c</code> 开头，「算是上线了吗」那次以 <code>bd410f33</code> 开头。在项目目录运行 <code>claude --resume</code> 就能找到。第一份不好认，是因为它的第一条消息是 <code>/context</code> 的输出。</li>
+    <li><span class="t">定位进度</span><br>对照记录和手册，确认 10-29 只做到了第 3 步（DNS）。在第 4 步要 SSH 时卡住了，程序从来没在服务器上运行过，所以并不是「上线失败」。</li>
+    <li class="wrong"><span class="t">错误诊断（后来纠正了）</span><br>Claude 从自己的沙箱测试端口，22 超时，就判断是「安全组记的是旧 IP」。你去控制台看了，规则里的 IP 一直是对的。后来查明是沙箱连不了任何 22 端口。详见第 05 节。</li>
+    <li><span class="t">第 4 步：SSH 登录，加 swap</span><br>你从自己的终端登录成功。<code>free -h</code> 显示 <code>Swap: 0B</code>，说明 swap 没加，补上了；Docker 已经装好。</li>
+    <li><span class="t">第 5 步：Deploy key + clone</span><br><code>ssh -T git@github.com</code> 返回 <code>Hi ushi02/go_feed!</code>，clone 下来的最新 commit 是 <code>bea768e</code>，和 GitHub 上的 <code>main</code> 一致。</li>
+    <li><span class="t">第 6 步：写 <code>.env</code></span><br>填了域名和两个随机密码，<code>chmod 600</code>。另外弄清楚了：DeepSeek key 之前填在 Mac 上的 <code>.env</code> 里，服务器上要再填一次。</li>
+    <li><span class="t">第 7 步：启动</span><br><code>docker compose -f docker-compose.prod.yml up -d --build</code>，镜像构建约 2 分钟，5 个容器全部起来了。</li>
+    <li><span class="t">第 8 步：上线检查（部分完成）</span><br>HTTPS、证书、HTTP 跳转、健康检查、worker、备份、内存都正常。3306 和浏览器里的检查还要你做。</li>
+  </ul>
+</section>
+
+<section class="card" id="status">
+  <h2><span class="num">02</span>现在的状态</h2>
+  <div class="progress">
+    <div class="done"><b>0</b>准备</div>
+    <div class="done"><b>1</b>开 EC2</div>
+    <div class="done"><b>2</b>Elastic IP</div>
+    <div class="done"><b>3</b>DNS</div>
+    <div class="done"><b>4</b>Docker、swap</div>
+    <div class="done"><b>5</b>拉代码</div>
+    <div class="done"><b>6</b>.env</div>
+    <div class="done"><b>7</b>启动</div>
+    <div class="half"><b>8</b>检查一半</div>
+  </div>
+  <div class="table-scroll"><table>
+    <tr><th>检查</th><th>结果</th><th>谁测的</th></tr>
+    <tr><td>HTTPS 页面</td><td><span class="tag green">200</span> 证书验证通过</td><td>Claude</td></tr>
+    <tr><td>证书</td><td><span class="tag green">Let's Encrypt</span> 有效期到 2027-01-27，Caddy 会自动续期</td><td>Claude</td></tr>
+    <tr><td>HTTP 跳转</td><td><span class="tag green">308</span> → <code>https://gugu.ushi02.live/</code></td><td>Claude</td></tr>
+    <tr><td><code>/healthz</code></td><td><span class="tag green">{"status":"ok"}</span></td><td>Claude</td></tr>
+    <tr><td>worker</td><td><span class="tag green">正常</span> 导入博客池 1426 个，正在抓取</td><td>你（服务器上）</td></tr>
+    <tr><td>备份</td><td><span class="tag green">有</span> <code>go_feed-2026-10-30.sql.gz</code></td><td>你（服务器上）</td></tr>
+    <tr><td>内存</td><td><span class="tag green">够用</span> available 848Mi</td><td>你（服务器上）</td></tr>
+    <tr><td>3306 不对外</td><td><span class="tag gray">待测</span> Claude 的沙箱连不了任何 3306，测不了</td><td>你（Mac 上）</td></tr>
+    <tr><td>cookie 带 Secure、HttpOnly</td><td><span class="tag gray">待测</span></td><td>你（浏览器）</td></tr>
+    <tr><td>注册 → 订阅 → 文章出现</td><td><span class="tag gray">待测</span></td><td>你（浏览器）</td></tr>
+    <tr><td>咕咕的回答是流式出现的</td><td><span class="tag gray">待测</span></td><td>你（浏览器）</td></tr>
+  </table></div>
+</section>
+
+<section class="card" id="arch">
+  <h2><span class="num">03</span>上线后，一个请求怎么走到程序</h2>
+  <p>以用户打开 <code>https://gugu.ushi02.live</code> 为例：</p>
+  <div class="diagram">
+    <div class="box ext"><strong>用户的浏览器</strong><small>访问 https://gugu.ushi02.live</small></div>
+    <div class="arrow"><b>↓</b>先查：这个域名的 IP 是多少？</div>
+    <div class="box orange"><strong>Cloudflare DNS</strong><small>A 记录 gugu → 13.236.88.164（灰色云朵，只负责解析）</small></div>
+    <div class="arrow"><b>↓</b>连接 13.236.88.164:443</div>
+    <div class="frame">
+      <div class="label">AWS 悉尼 · 安全组：22（只允许你的 IP）、80、443</div>
+      <div class="frame">
+        <div class="label">EC2 t4g.small · Elastic IP 13.236.88.164 · docker compose</div>
+        <div class="row">
+          <div class="box green"><strong>caddy</strong><small>唯一对外的容器，80/443</small><small>HTTPS 证书、HTTP 跳转到 HTTPS</small></div>
+        </div>
+        <div class="arrow"><b>↓</b>reverse_proxy api:8080（只走 Docker 内部网络）</div>
+        <div class="row">
+          <div class="box blue"><strong>api</strong><small>Go + Gin，同时提供前端页面</small><small>启动时执行数据库迁移</small></div>
+          <div class="box blue"><strong>worker</strong><small>导入博客池，定时抓 RSS</small></div>
+          <div class="box purple"><strong>backup</strong><small>每天 mysqldump，保留 7 天</small></div>
+        </div>
+        <div class="arrow"><b>↓</b>mysql:3306（没有映射到主机端口）</div>
+        <div class="row">
+          <div class="box purple"><strong>mysql</strong><small>数据存在 volume mysql_data 里</small></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p>这张图对应 <code>docker-compose.prod.yml</code> 里的 5 个服务。只有 caddy 写了 <code>ports:</code>，所以外部只能访问 caddy。MySQL 有两层防护：安全组没开 3306；就算误开了，MySQL 也没有映射到主机端口，外部还是连不上。</p>
+</section>
+
+<section class="card" id="steps">
+  <h2><span class="num">04</span>每一步做了什么、为什么这样做</h2>
+
+  <h3>第 0 步：准备</h3>
+  <p>生产环境只部署 <code>main</code> 分支。代码已经通过 PR #1、#2 合进了 <code>main</code>。服务器 clone 下来的最新 commit 是 <code>bea768e</code>，也就是第 2 个 PR 的合并。</p>
+
+  <h3>第 1 步：创建 EC2 实例</h3>
+  <div class="table-scroll"><table>
+    <tr><th>选项</th><th>选了什么</th><th>为什么</th></tr>
+    <tr><td>区域</td><td>悉尼 <code>ap-southeast-2</code></td><td>原计划用东京，但新账号的控制台不能切换区域。RSS 阅读器对延迟不敏感</td></tr>
+    <tr><td>机型</td><td><code>t4g.small</code>（2 核，2GB 内存）</td><td>Free plan 能选的 2GB 机型里最便宜。<code>t4g</code> 用的是 ARM 芯片（AWS Graviton）</td></tr>
+    <tr><td>ARM 要改代码吗</td><td>不用</td><td>镜像在服务器上构建，构建出来就是 ARM 版本。Go 用 <code>CGO_ENABLED=0</code> 编译，不依赖 C 库。mysql、caddy 的官方镜像都有 arm64 版本</td></tr>
+    <tr><td>系统</td><td>Ubuntu 24.04</td><td>资料最多，出了问题容易查到</td></tr>
+    <tr><td>密钥</td><td><code>~/.ssh/go-feed.pem</code>，权限 <code>chmod 600</code></td><td>SSH 用这个私钥证明是你本人。文件权限太宽的话，ssh 会拒绝使用它</td></tr>
+    <tr><td>安全组</td><td>22 只允许你的 IP；80、443 允许所有人</td><td>网站要让所有人都能访问。SSH 是登录服务器的入口，网上一直有程序在扫描 22 端口</td></tr>
+  </table></div>
+  <p>创建时看到警告 <em>Rules with source of 0.0.0.0/0 allow all IP addresses…</em>：对 80/443 来说，这正是我们要的。Let's Encrypt 签发证书时，也要从外部连进来验证。</p>
+
+  <h3>第 2 步：Elastic IP</h3>
+  <p>EC2 默认分配的公网 IP，在机器<strong>停止再启动</strong>后会变，DNS 记录写的是 IP，IP 一变网站就打不开了。Elastic IP 是固定的 IP，这次分配到的是 <code>13.236.88.164</code>。</p>
+  <div class="note">Elastic IP 没有绑定在运行中的机器上时也会收费。以后删除这台机器时，要记得 Release 这个 IP。</div>
+
+  <h3>第 3 步：DNS</h3>
+  <p><code>ushi02.live</code> 是在 name.com 买的，但域名服务器交给了 Cloudflare，所以 DNS 记录要加在 Cloudflare 里。加了一条 A 记录 <code>gugu → 13.236.88.164</code>，选<strong>灰色云朵（DNS only）</strong>。如果选橙色，浏览器连到的是 Cloudflare 的服务器，而不是你的机器：Caddy 申请证书可能失败，咕咕的流式回答也可能被 Cloudflare 攒起来，最后一次性发出。</p>
+
+  <h3>第 4 步：Docker 和 swap</h3>
+  <p><strong>swap 是硬盘上划出的一块空间。内存不够用时，系统会把暂时用不到的数据搬到这里，给正在运行的程序腾出内存。</strong></p>
+  <p>机器的内存一共只有 1.8Gi（标称 2GB，减去系统保留的部分）。<code>--build</code> 构建镜像时，npm 打包前端和 Go 编译会同时占用几百 MB 到 1GB。如果没有 swap，内存一满，Linux 会直接杀掉占内存最多的进程（OOM killer），构建失败，日志里可能只有一个 <code>Killed</code>。加 swap 以后，构建会慢一些，但能完成。</p>
+  <pre><code>sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile   # 创建 2GB 文件，只有 root 能读（内存里的数据可能包含密码）
+sudo mkswap /swapfile && sudo swapon /swapfile               # 格式化成 swap，并立即启用
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab    # 重启后自动启用；只运行一次</code></pre>
+  <p>先检查后操作：这次登录后先用 <code>free -h</code> 看了一下，确认 swap 是 0B 才加的。swap 命令重复运行会出问题：<code>fallocate</code> 报错，<code>/etc/fstab</code> 里会多出重复的一行。</p>
+
+  <h3>第 5 步：Deploy key 和 clone</h3>
+  <p>仓库是私有的，服务器需要一把钥匙才能 clone。这里没用你自己的 GitHub 账号，而是用了 <strong>Deploy key</strong>：</p>
+  <div class="table-scroll"><table>
+    <tr><th></th><th>你的个人 SSH key</th><th>Deploy key（这次用的）</th></tr>
+    <tr><td>能访问什么</td><td>你账号下的所有仓库</td><td>只有 <code>ushi02/go_feed</code> 这一个</td></tr>
+    <tr><td>能不能写</td><td>能</td><td>不能（没勾 Allow write access）</td></tr>
+    <tr><td>服务器被攻破时</td><td>攻击者能改你所有的仓库</td><td>攻击者只能读这一个仓库</td></tr>
+  </table></div>
+  <p><code>ssh -T git@github.com</code> 返回的是 <code>Hi ushi02/go_feed!</code>（仓库名），而不是 <code>Hi ushi02!</code>（用户名），说明 GitHub 认出了这是 Deploy key。第一次连接时提示的指纹 <code>SHA256:+DiY3wvv…</code> 和 GitHub 官方公布的一致，所以可以放心输入 <code>yes</code>。</p>
+
+  <h3>第 6 步：<code>.env</code></h3>
+  <div class="table-scroll"><table>
+    <tr><th>变量</th><th>作用</th></tr>
+    <tr><td><code>DOMAIN</code></td><td>Caddy 为这个域名申请证书</td></tr>
+    <tr><td><code>MYSQL_ROOT_PASSWORD</code></td><td>MySQL 管理员的密码，备份时用</td></tr>
+    <tr><td><code>MYSQL_USER</code> / <code>MYSQL_PASSWORD</code></td><td>api 和 worker 平时连数据库用的账号。和 root 分开，程序就不需要管理员权限</td></tr>
+    <tr><td><code>DEEPSEEK_API_KEY</code></td><td>咕咕调用大模型用的密钥</td></tr>
+  </table></div>
+  <p>密码用 <code>openssl rand -hex 16</code> 生成，结果只含字母和数字。原因是密码会被拼进 <code>MYSQL_DSN</code>：<code>go_feed:密码@tcp(mysql:3306)/…</code>，如果密码里有 <code>@</code> 或 <code>/</code>，这个连接字符串就会被解析错。</p>
+  <p><strong>为什么 DeepSeek key 要填两次：</strong><code>.env</code> 在 <code>.gitignore</code> 里，不会进仓库，<code>git clone</code> 也就不会把它带到服务器上。Mac 上的 <code>.env</code> 是本地开发用的，服务器上的是生产环境用的，两个文件互相独立。密钥不进仓库是 CLAUDE.md 里规定的。</p>
+  <p>写密钥时用 <code>nano</code> 编辑文件，不要用 <code>echo "KEY=..." >> .env</code>，否则密钥会留在 shell 的命令历史里。</p>
+
+  <h3>第 7 步：启动</h3>
+  <p>你贴的输出，按时间顺序是这样：</p>
+  <div class="table-scroll"><table>
+    <tr><th>输出</th><th>含义</th></tr>
+    <tr><td><code>Image mysql:8.0 Pulled</code>、<code>caddy Pulled</code></td><td>下载官方镜像，不用自己构建</td></tr>
+    <tr><td><code>go_feed-api Built 115.5s</code></td><td>按 <code>Dockerfile</code> 打包前端、编译 Go，用了约 2 分钟。worker 用的是同一个镜像，所以两个同时完成</td></tr>
+    <tr><td><code>Volume … Created</code></td><td>创建 3 个 volume，存数据库数据和证书。重建容器时数据不会丢</td></tr>
+    <tr><td><code>mysql Healthy 21.4s</code></td><td>MySQL 第一次初始化完成，健康检查通过</td></tr>
+    <tr><td><code>api Healthy 26.8s</code></td><td>mysql 健康以后 api 才启动。api 先执行迁移，再通过 <code>/healthz</code> 检查</td></tr>
+    <tr><td><code>worker / backup / caddy Started</code></td><td>都要等 api 健康以后才启动：worker 需要表已经存在；backup 不想备份出一个空库；caddy 要转发的目标是 api</td></tr>
+  </table></div>
+  <p>这个启动顺序是 compose 里的 <code>depends_on: condition: service_healthy</code> 决定的，不是碰巧。</p>
+</section>
+
+<section class="card" id="logs">
+  <h2><span class="num">05</span>怎么读服务器的输出</h2>
+
+  <h3>worker 日志</h3>
+  <div class="table-scroll"><table>
+    <tr><th>日志</th><th>含义</th><th>要不要管</th></tr>
+    <tr><td><code>goose: no migrations to run. current version: 5</code></td><td>api 已经把 5 个迁移执行完了，worker 检查时发现没有新的</td><td><span class="tag green">正常</span></td></tr>
+    <tr><td><code>blog pool: 1426 feeds imported, 143 rows … skipped</code></td><td>worker 启动时，把编译进程序的博客池 CSV（来自 timqian/chinese-independent-blogs）导入数据库。143 行没有 RSS 地址，跳过了</td><td><span class="tag green">正常</span></td></tr>
+    <tr><td><code>fetch feed 15: failed to detect feed type</code></td><td>这个地址返回的内容不是 RSS/Atom，比如博客改版了，地址变成了一个网页</td><td><span class="tag gray">博客的问题</span></td></tr>
+    <tr><td><code>feed returned HTTP 403</code></td><td>对方网站拒绝了请求，常见原因是防爬虫设置</td><td><span class="tag gray">博客的问题</span></td></tr>
+    <tr><td><code>context deadline exceeded (Client.Timeout …)</code></td><td>对方一直没回应，fetcher 设置的超时生效了。没有超时的话，一个慢网站会一直卡住一个抓取任务</td><td><span class="tag gray">博客的问题</span></td></tr>
+    <tr><td><code>feed response exceeds 2 MiB</code></td><td>fetcher 规定最多读 2 MiB，这个博客的 RSS 更大，被拒绝了。这是防护措施，防止一个超大响应把内存占满</td><td><span class="tag gray">防护生效</span></td></tr>
+    <tr><td><code>round done: 1 feeds …</code></td><td>每一轮，worker 会一直领取到期的博客，直到没有为止。第一轮应该一次处理了上千个；现在的每一轮只有零星到期的，所以只有 1 个</td><td><span class="tag green">正常</span></td></tr>
+  </table></div>
+  <p>抓取失败的博客不会一直重试：失败越多，下次重试隔得越久（1、2、4…小时，最多 32 小时）。这在 <code>worker.go</code> 里叫 backoff（退避）。连续失败太多次，或者对方返回 410（Gone，表示永久删除），这个博客就会被停用，不再抓取。</p>
+  <div class="tip">想看第一轮的规模，可以在服务器上运行：<code>docker compose -f docker-compose.prod.yml logs worker | grep "round done" | head -3</code></div>
+
+  <h3>备份只有 2.1K</h3>
+  <p>文件的时间是 00:36，和 worker 启动是同一分钟。backup 容器在 api 健康后马上做了第一次备份，那时表刚建好，博客池可能还没导入完，所以几乎是空的。下一次备份在 24 小时之后，那时就会有博客池和文章，文件会大很多。手册里说「MB 级别」，指的是有数据之后的大小。</p>
+
+  <h3>内存</h3>
+  <pre><code>               total   used    available
+Mem:           1.8Gi   986Mi   848Mi
+Swap:          2.0Gi   350Mi   1.7Gi</code></pre>
+  <p>5 个容器全部运行时，还剩 848Mi 可用，够用。swap 用了 350Mi，大部分是构建时搬过去的，之后用不到就不会再搬回来，不用担心。要注意的是：如果 <code>available</code> 长期低于 200Mi，或者 swap 的使用量一直增长，就说明内存不够了。</p>
+</section>
+
+<section class="card" id="bug">
+  <h2><span class="num">06</span>一次错误的诊断</h2>
+  <h3>先区分「被拒绝」和「超时」</h3>
+  <div class="compare">
+    <div>
+      <h4><span class="tag orange">Connection refused</span> 很快就失败</h4>
+      <p>请求<strong>到达了</strong>服务器，服务器回复：这个端口上没有程序在监听。</p>
+      <p>例子：10-30 启动前，80 和 443 在 0.2 秒内就被拒绝了。这时安全组已经放行，只是 Caddy 还没启动。</p>
+    </div>
+    <div>
+      <h4><span class="tag red">Timeout</span> 一直卡住</h4>
+      <p>请求<strong>在途中被丢掉了</strong>，没有任何回应。AWS 安全组拦下请求时就是这样，网络或代理屏蔽某个端口时也一样。</p>
+    </div>
+  </div>
+
+  <h3>当时的判断错在哪里</h3>
+  <p>Claude 从自己的沙箱测试，80/443 被拒绝，22 超时，就断定是「安全组记的是旧 IP」。实际情况：</p>
+  <div class="table-scroll"><table>
+    <tr><th>检查</th><th>结果</th></tr>
+    <tr><td>安全组 SSH 规则里的 IP</td><td>就是 <code>153.179.155.201</code>，和你当时的 IP 一样</td></tr>
+    <tr><td>你从自己的终端 SSH</td><td>成功</td></tr>
+    <tr><td>沙箱连 <code>github.com:22</code></td><td>同样超时，说明沙箱连<strong>任何</strong> 22 端口都会超时</td></tr>
+  </table></div>
+  <div class="bad"><strong>错误在于：</strong>用一个本身有限制的环境去测试，再把测试结果当成服务器的问题。正确的做法是先测一个已知正常的目标作为对照组，比如 <code>github.com:22</code>。对照组也失败，就说明问题出在测试环境。后来测 3306 时就先做了对照，对照组也超时，所以那一项交给你在本机测。</div>
+  <p><strong>10-29 那次卡住的真正原因没能确定。</strong>规则没改过，第二天就能直接登录了，比较可能是你本机网络或 VPN/代理的临时状态。下次再遇到，在<strong>你自己的终端</strong>里运行：</p>
+  <pre><code>curl -s https://checkip.amazonaws.com     # 现在的公网 IP，和安全组规则里的 IP 比一下
+nc -vz -G 5 13.236.88.164 22               # 22 是超时还是被拒绝
+nc -vz -G 5 13.236.88.164 443              # 对照：443 能不能连上
+nc -vz -G 5 github.com 22                  # 对照：你的网络能不能连上任何 22 端口</code></pre>
+</section>
+
+<section class="card" id="todo">
+  <h2><span class="num">07</span>还没做的</h2>
+  <div class="table-scroll"><table>
+    <tr><th>事情</th><th>为什么</th><th>什么时候做</th></tr>
+    <tr><td>完成第 8 步剩下的检查（3306、cookie、完整流程、咕咕流式回答）</td><td>「首页能打开」不等于安全和功能都正常</td><td>现在</td></tr>
+    <tr><td>更新 <code>plan.md</code> 里 M4 的进度</td><td>路线图要和实际情况一致</td><td>检查全部通过后</td></tr>
+    <tr><td>把备份复制到机器之外</td><td><code>backups/</code> 和数据库在同一块硬盘上，硬盘坏了会一起丢失</td><td>上线稳定后，用 EBS 快照（Data Lifecycle Manager）或定期 <code>scp</code> 到本机</td></tr>
+    <tr><td>AWS 预算提醒</td><td>额度花得比预想快时能及早知道</td><td>尽快，Billing → Budgets</td></tr>
+    <tr><td>决定额度到期后怎么办</td><td>Free plan 约 2027-04-14 到期，资源会被停掉</td><td>2027-03-31 之前</td></tr>
+  </table></div>
+  <h3>以后更新代码</h3>
+  <pre><code>cd ~/go_feed
+git pull && docker compose -f docker-compose.prod.yml up -d --build    # 拉最新的 main，重新构建并启动
+docker compose -f docker-compose.prod.yml logs -f --tail=100 api        # 看 api 的日志，Ctrl+C 退出</code></pre>
+</section>
+
+<section class="card" id="interview">
+  <h2><span class="num">08</span>面试可能会问</h2>
+  <dl class="qa">
+    <dt>为什么用一台 VPS + Docker Compose，不用 ECS 或 Kubernetes？</dt>
+    <dd>用户很少，一台 2GB 的机器就够用。Compose 用一个文件描述 5 个服务和它们的启动顺序，本地和线上用的是同一套配置。迁移到 AWS 托管服务的方案，我单独写在了设计文档里。</dd>
+    <dt>HTTPS 证书是怎么来的？</dt>
+    <dd>Caddy 读到 Caddyfile 里的域名后，会自动向 Let's Encrypt 申请证书，到期前自动续期。证书存在 <code>caddy_data</code> volume 里，重建容器也不会丢。前提是 DNS 已经指向这台机器，所以 DNS 要先配好，确认生效后再启动 Caddy。</dd>
+    <dt>MySQL 怎么防止被外部访问？</dt>
+    <dd>两层：安全组不开 3306；compose 里 MySQL 没有 <code>ports:</code>，只在 Docker 的内部网络里能访问。上线时用 <code>nc</code> 从外部测试 3306，并用 443 做对照。</dd>
+    <dt>服务之间的启动顺序怎么保证？</dt>
+    <dd>用 <code>depends_on</code> 加 <code>condition: service_healthy</code>。MySQL 健康以后才启动 api；api 执行完迁移、健康检查通过后，worker、backup、caddy 才启动。MySQL 的健康检查特意用 TCP（<code>-h 127.0.0.1</code>），因为第一次初始化时，MySQL 会先启动一个只监听 socket 的临时服务器，用 socket 检查会误判为已就绪。</dd>
+    <dt>部署时遇到过什么问题？</dt>
+    <dd>SSH 连不上时，我先区分是「超时」还是「被拒绝」，来判断请求有没有到达服务器。有一次结论下早了：测试环境本身连不了任何 22 端口，我却以为是安全组的问题。后来测了 <code>github.com:22</code> 做对照才发现。从那以后，我会先确认测试环境本身没问题，再相信测试结果。</dd>
+    <dt>部署在 2GB 内存的机器上，有什么要注意的？</dt>
+    <dd>镜像是在服务器上构建的，构建时内存会冲高，所以加了 2GB swap，防止 OOM。运行时 5 个容器加起来大约占 1GB，还剩 800MB 左右可用。</dd>
+  </dl>
+</section>
+
+</div>
+</body>
+</html>

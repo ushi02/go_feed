@@ -349,3 +349,55 @@ HTTP 429 Too Many Requests，附上一句提示。被拒绝的消息不保存，
 
 **Q：咕咕说了好几段话，怎么分成几个气泡？**
 后端在每段话结束时发一个 `break` 事件，前端收到后，把当前气泡标记为结束，之后的文字放进新的气泡。数据库里本来就是一段话一条消息，所以流式输出时看到的分段，和刷新后从数据库读出来的完全一样。这个问题是用真实的 DeepSeek 聊天时才发现的，用假模型测试时每轮只说一段话，看不出来。
+
+## M5-1 CI 加前端构建检查
+
+**Q：你的 CI 检查什么？**
+- 两个并行的 job：`go` 跑 `go vet` 和 `go test -race`（集成测试用 testcontainers 起真实 MySQL）；`frontend` 跑 `npm ci && npm run build`。
+- `npm run build` 是 `tsc -b && vite build`，先做 TypeScript 类型检查，类型写错时 CI 直接失败，不会等到部署时 Docker 构建才发现。
+
+**Q：为什么用 `npm ci` 而不是 `npm install`？**
+- `npm ci` 严格按 `package-lock.json` 安装，不会改 lock 文件；lock 和 `package.json` 对不上就直接报错。CI 要的是「每次装出来的依赖都一样」，可复现。
+
+**Q：Node 版本怎么定的？**
+- 和 Dockerfile 里的 `node:22-alpine` 保持一致。CI 检查的环境和线上构建的环境不一致，CI 通过就不能说明线上能构建成功。
+
+## M5-1 自动部署（CD）
+
+**Q：你的项目怎么部署？**
+- 合并到 `main` → CI 的 `go`、`frontend` 都通过 → `deploy` job 向 GitHub 要一张 OIDC 令牌，发到 `https://域名/deploy` → Caddy 转给服务器上的 deployhook → deployhook 验证令牌，然后把服务器上的代码更新到这个 commit，执行 `docker compose up -d --build` → workflow 每 10 秒查一次状态，成功后访问 `/healthz` 确认。
+
+**Q：OIDC 令牌是什么？怎么验证？**
+- 是一个 JWT，由三段组成：头（签名算法）、内容（claims）、签名。GitHub 用自己的私钥签名，公钥公开在 `https://token.actions.githubusercontent.com/.well-known/jwks`。内容里改一个字，签名就对不上了。
+- 验证分两层：签名、签发方（`iss`）、接收方（`aud`）、过期时间（`exp`）这些标准检查交给 `go-oidc` 库；业务规则自己写：仓库 ID、分支 `main`、事件 `push`、workflow 是 `ci.yml`。
+- 加密相关的部分不自己写，用成熟的库。我负责的是「什么样的令牌可以触发部署」。
+
+**Q：为什么不用 AWS 原生的 OIDC + SSM？**
+- 本来是这么设计的，但这个 AWS 账号是新版的项目模式，IAM 里加 OIDC 身份提供商要先「Activate advanced features」，这个操作不可逆，而且会永久取消账号的花费上限。为了部署方便失去整个账号的费用保护，不划算，所以改成服务器自己验证同一种令牌。
+
+**Q：为什么不用 SSH？**
+- SSH 要在 GitHub 里存一把长期有效的私钥，泄露以后在被发现之前一直能用；OIDC 令牌几分钟就过期。
+- GitHub Actions 的 IP 很多而且会变，SSH 方案得把 22 端口对全世界开放；现在 22 端口只对我自己的 IP 开放，部署走现有的 443。
+- 代价是检查令牌的代码是自己写的，不像 OpenSSH 经过了几十年的检验。所以代码写得尽量短，每种攻击都写成了测试。
+
+**Q：你考虑过哪些攻击？**
+- 伪造签名、`alg: none`（声称不需要签名）、别的签发方、拿 GitHub 发给 AWS 的令牌来用（`aud` 不对）、过期令牌、别的仓库、别的分支、PR、别的 workflow：都会被拒绝，每一种都有测试。
+- **部署了没测过的 commit**：如果服务器执行 `git pull`，拉到的是 `main` 当前最新的代码，可能是一个 CI 还没跑完的新 commit。所以只部署令牌里 `sha` 写的那个 commit。
+- **重放旧令牌回退版本**：令牌过期前可以重复使用。部署前用 `git merge-base --is-ancestor HEAD <sha>` 检查，比当前版本旧的 commit 直接拒绝。
+- **命令注入**：`sha` 要传给 git，所以先检查它必须是 40 位十六进制，再作为单独的参数传给 `exec.Command`，不经过 shell。测试里有 `--upload-pack=...` 这种伪装成 git 参数的输入。
+- **拖垮服务器**：验证库遇到签名不对的令牌，会重新去 GitHub 下载公钥（我读了库的源码确认的），所以每个 IP 每分钟最多 20 次请求；另外设了读写超时和请求头大小上限。
+- **令牌泄露**：令牌放在 `Authorization` 头里，不放在网址里（网址会被写进日志）；workflow 里用 `::add-mask::` 把它打码；`deploy` job 不运行第三方 action，也不装依赖，因为这个 job 里的每一步都能领到令牌。
+
+**Q：deployhook 为什么跑在宿主机上，不放进容器？**
+- 它要执行 `docker compose`。把 Docker 的 socket 挂进容器，等于给了容器宿主机的 root 权限，没有更安全；而且部署时会重建容器，放在容器里的部署程序可能把自己停掉。
+- 它只监听 Docker 网桥的地址 `172.17.0.1:9090`，外网连不到，安全组也没有开放这个端口。Caddy 通过 `host.docker.internal` 连过去。
+
+**Q：为什么部署是异步的？**
+- 构建要好几分钟，而且部署过程中 Caddy 可能被重建，HTTP 连接会断。所以 `POST /deploy` 立刻返回 202，在后台部署；workflow 轮询 `/deploy/status`，要求状态是 succeeded 并且 commit 和自己的一致。连接断了也只是这一次查询失败，下次再查。
+
+**Q：还剩什么风险？**
+- GitHub 账号被盗：别人推到 `main` 的代码会被自动部署。所有自动部署都有这个问题，对策是开两步验证。
+- deployhook 在 docker 组里，相当于 root。代码出 bug 的后果严重，所以保持简短，并为每种攻击写测试。
+
+**Q：部署失败了网站会挂吗？**
+- 不会。`docker compose up --build` 先构建新镜像，构建失败时不会替换正在运行的旧容器。`deploy` job 会变红，服务器上 `journalctl -u deployhook` 有完整输出。

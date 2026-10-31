@@ -1,5 +1,15 @@
 # Caddy gets and renews the HTTPS certificate for DOMAIN automatically.
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy api:8080
+
+	# Deploy requests from GitHub Actions go to deployhook, which runs on the
+	# host (docs/rss-reader/deploy-ec2.md, step 9). It checks every request itself.
+	@deploy path /deploy /deploy/*
+	handle @deploy {
+		reverse_proxy host.docker.internal:9090
+	}
+
+	handle {
+		reverse_proxy api:8080
+	}
 }

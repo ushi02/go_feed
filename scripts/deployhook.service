@@ -1,0 +1,18 @@
+# systemd unit for deployhook; install steps in docs/rss-reader/deploy-ec2.md, step 9.
+[Unit]
+Description=go_feed deployhook (deploys main when GitHub Actions asks)
+# It listens on Docker's bridge address, which exists once Docker is up.
+After=docker.service
+Wants=docker.service
+
+[Service]
+# ubuntu owns the checkout and the git deploy key, and is in the docker group.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/go_feed
+ExecStart=/usr/local/bin/deployhook
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

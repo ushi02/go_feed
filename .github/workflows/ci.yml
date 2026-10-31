@@ -19,3 +19,60 @@ jobs:
       - run: go vet ./...
       # Integration tests start MySQL with testcontainers; GitHub's Ubuntu runners have Docker.
       - run: go test -race ./...
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # same as the Dockerfile
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      # tsc -b runs first, so a type error fails CI.
+      - run: npm run build
+
+  # Setup: docs/rss-reader/deploy-ec2.md, step 9. Skipped until DEPLOY_URL is set.
+  deploy:
+    needs: [go, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.DEPLOY_URL != ''
+    runs-on: ubuntu-latest
+    concurrency: deploy
+    permissions:
+      id-token: write # lets the job ask GitHub for a signed OIDC token
+      contents: read
+    env:
+      URL: ${{ vars.DEPLOY_URL }}
+    # Every step in this job can request a token, so the job runs only curl and
+    # jq: no checkout, no third-party actions, no installed packages.
+    steps:
+      - name: Deploy this commit and wait
+        run: |
+          # A fresh token for each request (they expire in minutes), masked in the log.
+          get_token() {
+            TOKEN=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=gugu-deploy" | jq -r .value)
+            echo "::add-mask::$TOKEN"
+          }
+          get_token
+          curl -fsS -X POST -H "Authorization: Bearer $TOKEN" "$URL/deploy"
+          echo
+          # The server deploys in the background; Caddy may restart meanwhile, so errors are retried.
+          for _ in $(seq 120); do
+            sleep 10
+            get_token
+            status=$(curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/deploy/status" || echo '{}')
+            echo "$status"
+            [ "$(jq -r .sha <<<"$status")" = "$GITHUB_SHA" ] || continue
+            case "$(jq -r .state <<<"$status")" in
+              succeeded) exit 0 ;;
+              failed) exit 1 ;;
+            esac
+          done
+          echo "timed out"; exit 1
+      - name: Check /healthz
+        run: curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "$URL/healthz"
