@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ushi02/go_feed/backend/internal/middleware"
+	"github.com/ushi02/go_feed/backend/internal/ratelimit"
 )
 
 // Each request may make the verifier download GitHub's keys again (it does so
@@ -19,7 +19,7 @@ const perMinute = 20
 type Server struct {
 	Verifier *Verifier
 	Deployer *Deployer
-	Limiter  *middleware.Limiter
+	Limiter  *ratelimit.Limiter
 }
 
 func (s *Server) Handler() http.Handler {

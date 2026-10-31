@@ -209,7 +209,7 @@ docker compose -f docker-compose.prod.yml up -d --build    # 会重建 caddy（�
 
 ### 9-3 安装 deployhook
 
-服务器上没装 Go，所以借用 Go 的 Docker 镜像来编译（构建网站时已经下载过这个镜像）：
+服务器上没装 Go，所以借用 Go 的 Docker 镜像来编译。第一次会下载这个镜像（约 800MB）：构建网站时虽然也用到它，但那份存在构建工具自己的缓存里，`docker run` 用不到。
 
 ```sh
 cd ~/go_feed

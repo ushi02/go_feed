@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ushi02/go_feed/backend/internal/middleware"
+	"github.com/ushi02/go_feed/backend/internal/ratelimit"
 )
 
 func TestServer(t *testing.T) {
@@ -15,7 +15,7 @@ func TestServer(t *testing.T) {
 	// Dir is not a repo, so a started deploy fails at git fetch; these tests
 	// only look at what the HTTP layer allows.
 	d := &Deployer{Dir: t.TempDir(), Timeout: time.Minute}
-	h := (&Server{Verifier: testVerifier(key), Deployer: d, Limiter: middleware.NewLimiter()}).Handler()
+	h := (&Server{Verifier: testVerifier(key), Deployer: d, Limiter: ratelimit.New()}).Handler()
 
 	do := func(method, path, auth, ip string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(method, path, nil)

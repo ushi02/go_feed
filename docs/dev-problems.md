@@ -6,6 +6,15 @@
 
 ---
 
+## deployhook 被打包进了 gin 和 gorm（M5-1 CD，2026-10-31）
+- **现象：** 在服务器上编译 deployhook 时，下载列表里有 gin、gorm、quic-go、mongo-driver、protobuf。deployhook 只需要验证 JWT，用不到这些。编译出来的程序有 20MB。
+- **原因：** 为了复用登录接口的限流代码，deployhook 导入了 `middleware` 包。这个包导入了 gin，还导入了 `account`，`account` 又导入了 gorm。Go 导入一个包时，会把它依赖的所有包一起编译进来。
+- **解决：** 把限流的计数逻辑移到新的 `internal/ratelimit` 包，只用标准库。`middleware` 用它包一层 gin 中间件，deployhook 直接用它。限流逻辑还是同一份。
+- **验证：** `go list -deps ./cmd/deployhook` 里第三方包只剩 go-oidc、go-jose、oauth2；程序从 20MB 变成 9.4MB；全部测试通过。
+- **学到了：** 「复用代码」时要看看导入的包会连带进来什么。权限越大的程序，越要让它只包含必要的代码。可以用 `go list -deps` 检查一个程序实际依赖了哪些包。
+
+---
+
 ## 自动部署用不了 AWS 的 OIDC，改成服务器自己验证（M5-1 CD，2026-10-31）
 - **现象：** 按计划要在 IAM 里添加 GitHub 的 OIDC 身份提供商，但 IAM 左边菜单只有 Roles、Policies、IAM users、Root access management，没有 Identity providers。直接打开那个页面，提示 Feature unavailable，要先「Activate advanced features」。
 - **原因：** 这个 AWS 账号是新版注册流程开的「项目」模式（用 Builder ID 登录）。查 AWS 文档：开启高级功能要先升级到 Paid plan，而且**不可逆**，开启后账号的花费上限会被永久取消。之前「不能切换区域」也是同一个原因。
