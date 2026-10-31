@@ -349,3 +349,15 @@ HTTP 429 Too Many Requests，附上一句提示。被拒绝的消息不保存，
 
 **Q：咕咕说了好几段话，怎么分成几个气泡？**
 后端在每段话结束时发一个 `break` 事件，前端收到后，把当前气泡标记为结束，之后的文字放进新的气泡。数据库里本来就是一段话一条消息，所以流式输出时看到的分段，和刷新后从数据库读出来的完全一样。这个问题是用真实的 DeepSeek 聊天时才发现的，用假模型测试时每轮只说一段话，看不出来。
+
+## M5-1 CI 加前端构建检查
+
+**Q：你的 CI 检查什么？**
+- 两个并行的 job：`go` 跑 `go vet` 和 `go test -race`（集成测试用 testcontainers 起真实 MySQL）；`frontend` 跑 `npm ci && npm run build`。
+- `npm run build` 是 `tsc -b && vite build`，先做 TypeScript 类型检查，类型写错时 CI 直接失败，不会等到部署时 Docker 构建才发现。
+
+**Q：为什么用 `npm ci` 而不是 `npm install`？**
+- `npm ci` 严格按 `package-lock.json` 安装，不会改 lock 文件；lock 和 `package.json` 对不上就直接报错。CI 要的是「每次装出来的依赖都一样」，可复现。
+
+**Q：Node 版本怎么定的？**
+- 和 Dockerfile 里的 `node:22-alpine` 保持一致。CI 检查的环境和线上构建的环境不一致，CI 通过就不能说明线上能构建成功。
