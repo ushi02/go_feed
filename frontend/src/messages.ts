@@ -1,12 +1,15 @@
-// All text the page shows, in Chinese and English. `en` has the type of `zh`,
-// so a missing or extra translation is a type error and fails the build.
+// All text the page shows, in Chinese, English and Japanese. `en` and `ja`
+// have the type of `zh`, so a missing or extra translation is a type error
+// and fails the build.
 
-export type Lang = 'zh' | 'en'
+export type Lang = 'zh' | 'en' | 'ja'
+export const langs: Lang[] = ['zh', 'en', 'ja']
+// Each language is listed under its own name, so people can find theirs.
+export const langNames: Record<Lang, string> = { zh: '中文', en: 'English', ja: '日本語' }
 
 const zh = {
   locale: 'zh-CN', // <html lang> and date format
-  switchLang: 'EN',
-  switchLangTitle: 'Switch to English',
+  langLabel: '语言',
   requestFailed: (status: number) => `请求失败 (${status})`,
   withReason: (text: string, reason: string) => `${text}（${reason}）`,
   loading: '正在打开阅读器…',
@@ -125,8 +128,7 @@ export type Messages = typeof zh
 
 const en: Messages = {
   locale: 'en-US',
-  switchLang: '中文',
-  switchLangTitle: '切换到中文',
+  langLabel: 'Language',
   requestFailed: status => `Request failed (${status})`,
   withReason: (text, reason) => `${text} (${reason})`,
   loading: 'Opening the reader…',
@@ -240,18 +242,135 @@ const en: Messages = {
   },
 }
 
-export const messages: Record<Lang, Messages> = { zh, en }
+const ja: Messages = {
+  locale: 'ja-JP',
+  langLabel: '言語',
+  requestFailed: status => `リクエストに失敗しました（${status}）`,
+  withReason: (text, reason) => `${text}（${reason}）`,
+  loading: 'リーダーを開いています…',
+
+  authHeadline: '読書に、静けさを。',
+  authIntro: '信頼できるサイトを購読して、ひとつの場所でまとめて読めます。',
+  username: 'ユーザー名',
+  password: 'パスワード',
+  login: 'ログイン',
+  register: 'アカウントを作成',
+  toRegister: 'アカウントをお持ちでない方はこちら',
+  toLogin: 'アカウントをお持ちの方はこちら',
+
+  tagline: '読みたいものを、読む',
+  searchPlaceholder: '中国語の個人ブログを検索…',
+  allEntries: 'すべての記事',
+  unreadEntries: '未読',
+  starredEntries: 'お気に入り',
+  folders: 'フォルダ',
+  manage: '管理',
+  newFolder: '新しいフォルダ',
+  addFolder: 'フォルダを追加',
+  feeds: 'フィード',
+  feedDisabled: '停止中',
+  feedDisabledTitle: reason => `取得を停止しました：${reason}。更新ボタンで再試行できます`,
+  refresh: '今すぐ更新',
+  unsubscribe: '購読を解除',
+  importOPML: 'OPML をインポート',
+  exportOPML: 'OPML をエクスポート',
+  logout: 'ログアウト',
+
+  subscriptionFallback: 'フィード',
+  fetching: n => `${n} 件のフィードを取得中です。記事はまもなく表示されます…`,
+  fetchFailed: n => `${n} 件のフィードを取得できませんでした。フィードの横の更新ボタンで再試行できます。`,
+  markAllRead: 'すべて既読にする',
+  addTitle: 'フィードを追加',
+  addHint: 'ブログのトップページか RSS の URL を貼り付けてください',
+  noFolder: 'フォルダなし',
+  discoverButton: '探して購読',
+  multipleFound: '複数のフィードが見つかりました：',
+  filterAll: 'すべて',
+  filterUnread: '未読',
+  filterStarred: 'お気に入り',
+  reloadList: '再読み込み ↻',
+  feedFallback: 'フィード',
+  untitled: '無題',
+  readArticle: '記事を読む →',
+  star: 'お気に入りに追加',
+  unstar: 'お気に入りから外す',
+  emptyList: 'まだ記事がありません。フィードを追加すると、worker が自動で取得します。',
+  loadMore: 'さらに読み込む',
+
+  readOriginal: '元の記事を開く ↗',
+  markRead: '既読にする',
+  markUnread: '未読に戻す',
+  loadingBody: '読み込み中…',
+  noContent: 'このフィードには本文がありません。「元の記事を開く」からお読みください。',
+
+  searchTitle: q => `「${q}」`,
+  searchHint: n => `ブログプールと購読中の記事から ${n} 件見つかりました（関連度順）。`,
+  subscribed: '購読済み',
+  subscribeBlog: 'このブログを購読',
+  noResults: '見つかりませんでした。別の言葉で試すか、スペースで区切ってください。ブログは中国語なので、中国語（漢字）のキーワードがおすすめです。',
+
+  manageTitle: 'フィードの管理',
+  rename: '名前を変更',
+  delete: '削除',
+  uncategorized: 'フォルダなし',
+
+  subscribedNotice: '購読しました。まもなく worker が記事を取得します。',
+  refreshScheduled: '更新を予約しました。新しい記事は自動で表示されます。',
+  markedRead: '既読にしました。',
+  imported: (added, skipped) => `${added} 件をインポートし、${skipped} 件をスキップしました。`,
+  folderNamePrompt: 'フォルダ名',
+  confirmDeleteFolder: name => `「${name}」を削除しますか？中のフィードは「フォルダなし」に移ります。`,
+  confirmUnsubscribe: 'このフィードの購読を解除しますか？お気に入りの記事は「お気に入り」に残ります。',
+
+  guguName: 'Gugu',
+  guguTagline: '購読したい中国語の個人ブログを探します',
+  askGugu: 'Gugu に聞く',
+  guguOpenTitle: 'Gugu と話して、購読したいブログを探す',
+  newChat: '新しい会話',
+  newChatTitle: '会話をリセットして最初から始める',
+  close: '閉じる',
+  guguHello: 'クルックー！伝書鳩の Gugu です。',
+  guguAsk: '何を読みたいですか？興味のあることを教えてくれれば、中国語の個人ブログの中から探してきます。',
+  suggestions: ['Go のバックエンドについて書いているブログを教えて', '日常生活について書いているブログが読みたい', '購読中の記事にデータベースの話はある？'],
+  replyCut: '（返信が途中で切れました）',
+  subscribedCheck: '購読済み ✓',
+  subscribe: '購読',
+  chatPlaceholder: '何を読みたいですか？（Enter で送信、Shift+Enter で改行）',
+  send: '送信',
+
+  errors: {
+    invalid_username: 'ユーザー名に使えるのは英数字、_ と - だけです',
+    invalid_length: 'ユーザー名は 3〜64 文字、パスワードは 8〜72 文字で入力してください',
+    username_taken: 'このユーザー名はすでに使われています',
+    invalid_credentials: 'ユーザー名またはパスワードが違います',
+    too_many_attempts: '試行回数が多すぎます。しばらくしてからお試しください',
+    discover_failed: 'フィードが見つかりませんでした',
+    invalid_url: 'この URL は購読できません',
+    already_subscribed: 'すでに購読しています',
+    folder_exists: '同じ名前のフォルダがすでにあります',
+    refreshed_recently: 'さきほど取得したばかりです。数分後にもう一度お試しください',
+    invalid_opml: 'OPML ファイルが正しくありません',
+    message_invalid: 'メッセージは 1〜1000 文字で入力してください',
+    chat_quota: 'Gugu はひと休み中です（24 時間で 50 件まで）。また後で話しかけてください',
+    chat_unavailable: 'このサーバーでは Gugu が設定されていません',
+    chat_upstream: 'いま Gugu に連絡がつきません。しばらくしてからお試しください',
+    chat_interrupted: '返信が途中で切れました。もう一度お試しください',
+  },
+}
+
+export const messages: Record<Lang, Messages> = { zh, en, ja }
 
 const storageKey = 'go_feed_lang'
 
-// The saved choice wins; otherwise Chinese browsers get Chinese and every
-// other language gets English.
+// The saved choice wins; otherwise Chinese and Japanese browsers get their
+// language and every other language gets English.
 export function initialLang(): Lang {
   try {
     const saved = localStorage.getItem(storageKey)
-    if (saved === 'zh' || saved === 'en') return saved
+    if (langs.includes(saved as Lang)) return saved as Lang
   } catch { /* storage blocked: fall through */ }
-  return navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
+  const browser = navigator.language.toLowerCase()
+  return browser.startsWith('zh') ? 'zh' : browser.startsWith('ja') ? 'ja' : 'en'
 }
 
 export function saveLang(lang: Lang) {

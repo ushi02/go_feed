@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Chat from './Chat'
-import { apiError, errorText, initialLang, type Lang, messages, saveLang } from './messages'
+import { apiError, errorText, initialLang, type Lang, langNames, langs, messages, saveLang } from './messages'
 
 type User = { id: number; username: string }
 type Folder = { id: number; name: string }
@@ -72,8 +72,9 @@ export default function App() {
 
   const subscribedURLs = useMemo(() => new Set(subs.map(s => s.feed.url)), [subs])
   const report = (e: unknown) => { setError(errorText(t, e)); setNotice('') }
-  const switchLang = () => { const next = lang === 'zh' ? 'en' : 'zh'; setLang(next); saveLang(next) }
-  const langButton = <button className="lang-toggle" onClick={switchLang} title={t.switchLangTitle}>{t.switchLang}</button>
+  const switchLang = (next: Lang) => { setLang(next); saveLang(next) }
+  const langButton = <select className="lang-toggle" value={lang} onChange={e => switchLang(e.target.value as Lang)} aria-label={t.langLabel}>
+    {langs.map(l => <option key={l} value={l}>{langNames[l]}</option>)}</select>
   const refreshNav = useCallback(async () => {
     const [f, s] = await Promise.all([
       request<{ folders: Folder[] }>('/folders'),
