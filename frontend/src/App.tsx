@@ -11,7 +11,10 @@ type Candidate = { url: string; title: string }
 type SearchResult = { entry_id: number; title: string; url: string; summary: string; sort_at: string; feed_id: number; feed_title: string; feed_url: string; subscribed: boolean }
 type Filter = 'all' | 'unread' | 'starred'
 
-const repoURL = 'https://github.com/ushi02/go_feed'
+// The GitHub mark from Octicons (MIT), inlined so no outside file is loaded.
+const githubLink = <a className="github-link" href="https://github.com/ushi02/go_feed" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub">
+  <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z" /></svg>
+</a>
 
 // feedState changes whenever the Worker finishes a fetch, successful or not.
 const feedState = (s: Subscription) => `${s.feed.last_fetched_at}|${s.feed.last_error}`
@@ -222,7 +225,7 @@ export default function App() {
 
   if (!ready) return <div className="loading">{t.loading}</div>
   if (!user) return <main className="auth-page"><section className="auth-card">
-    <div className="auth-top"><span className="eyebrow">GUGU READER</span>{langButton}</div><h1>{t.authHeadline}</h1>
+    <div className="auth-top"><span className="eyebrow">GUGU READER</span><span className="top-tools">{langButton}{githubLink}</span></div><h1>{t.authHeadline}</h1>
     <p>{t.authIntro}</p>
     <form onSubmit={authenticate}>
       <label>{t.username}<input value={username} onChange={e => setUsername(e.target.value)} minLength={3} required /></label>
@@ -231,7 +234,6 @@ export default function App() {
     </form>
     <button className="text-button" onClick={() => setLoginMode(loginMode === 'login' ? 'register' : 'login')}>{loginMode === 'login' ? t.toRegister : t.toLogin}</button>
     {error && <p className="error">{error}</p>}
-    <a className="source-link" href={repoURL} target="_blank" rel="noopener noreferrer">{t.sourceCode} ↗</a>
   </section></main>
 
   const activeTitle = subID !== null ? subs.find(s => s.id === subID)?.feed.title || t.subscriptionFallback : folderID !== null ? folders.find(f => f.id === folderID)?.name || t.folders : t.allEntries
@@ -248,7 +250,7 @@ export default function App() {
       <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>{t.allEntries}</button>
         <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>{t.unreadEntries}{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>
         <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>{t.starredEntries}</button>
-        <button onClick={() => setChatOpen(true)}>{t.askGugu}</button></div>
+        <button className={chatOpen ? 'active' : ''} aria-pressed={chatOpen} onClick={() => setChatOpen(o => !o)}>{t.askGugu}</button></div>
       <div className="nav-heading heading-row"><span>{t.folders}</span><button onClick={() => setShowManage(true)}>{t.manage}</button></div>
       <div className="nav-group">{folders.map(f => <button key={f.id} className={folderID === f.id ? 'active' : ''} onClick={() => { setFolderID(f.id); setSubID(null) }}>{f.name}</button>)}</div>
       <form className="mini-form" onSubmit={createFolder}><input placeholder={t.newFolder} value={newFolder} onChange={e => setNewFolder(e.target.value)} /><button title={t.addFolder}>＋</button></form>
@@ -260,7 +262,7 @@ export default function App() {
         <button className="icon" title={t.refresh} onClick={() => refreshSubscription(s.id)}>↻</button>
         <button className="icon" title={t.unsubscribe} onClick={() => removeSubscription(s.id)}>×</button>
       </div>)}</div>
-      <div className="side-bottom"><label className="import-label">{t.importOPML}<input type="file" accept=".opml,.xml,text/xml" onChange={e => e.target.files?.[0] && importOPML(e.target.files[0])} /></label><a href="/api/opml/export">{t.exportOPML}</a><a href={repoURL} target="_blank" rel="noopener noreferrer">{t.sourceCode} ↗</a><button onClick={logout}>{t.logout} · {user.username}</button>{langButton}</div>
+      <div className="side-bottom"><label className="import-label">{t.importOPML}<input type="file" accept=".opml,.xml,text/xml" onChange={e => e.target.files?.[0] && importOPML(e.target.files[0])} /></label><a href="/api/opml/export">{t.exportOPML}</a><button onClick={logout}>{t.logout} · {user.username}</button><div className="top-tools side-tools">{langButton}{githubLink}</div></div>
     </aside>
     <main className="content">
       <header className="topbar"><div><span className="eyebrow">YOUR READING SPACE</span><h1>{activeTitle}</h1>{pendingCount > 0 && <p className="fetch-status">{t.fetching(pendingCount)}</p>}{retryingCount > 0 && <p className="fetch-status">{t.fetchRetrying(retryingCount)}</p>}{stoppedCount > 0 && <p className="fetch-status error">{t.fetchStopped(stoppedCount)}</p>}</div><button className="outline" onClick={markRead}>{t.markAllRead}</button></header>

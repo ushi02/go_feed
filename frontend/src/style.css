@@ -407,11 +407,13 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .auth-card .primary { margin-top: 6px; padding: 11px 18px; }
 .auth-card .error { padding: 10px 12px; border-radius: var(--radius-sm); margin-top: 14px; }
 .text-button { border: 0; background: none; color: var(--accent); padding: 16px 0 0; }
-.source-link { display: block; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--separator); color: var(--text-2); font-size: 13px; text-decoration: none; }
-.source-link:hover { color: var(--accent); }
+.top-tools { display: flex; align-items: center; gap: 6px; }
+.github-link { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--text-2); }
+.github-link:hover { color: var(--text); background: var(--fill); }
 .lang-toggle { border: 0; background: var(--fill); color: var(--text-2); border-radius: 980px; padding: 4px 10px; font-size: 12px; }
 .lang-toggle:hover { background: var(--fill-hover); }
-.side-bottom .lang-toggle { align-self: flex-start; margin: 4px 10px 0; padding: 4px 10px; border-radius: 980px; background: var(--field); }
+.side-tools { margin: 4px 10px 0; }
+.side-bottom .lang-toggle { padding: 4px 10px; border-radius: 980px; background: var(--field); }
 .loading { min-height: 100vh; display: grid; place-items: center; color: var(--text-3); }
 
 /* Gugu, the chat pigeon */
@@ -524,7 +526,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   .brand { padding-bottom: 4px; }
   .sidebar .feeds { max-height: 160px; }
   .side-bottom { margin-top: 0; flex-direction: row; flex-wrap: wrap; align-items: center; }
-  .side-bottom .lang-toggle { margin: 0 10px; }
+  .side-tools { margin: 0 10px; }
   .content { padding: 28px 20px 96px; }
   .topbar { align-items: start; }
 }
