@@ -27,6 +27,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (text ? JSON.parse(text) : undefined) as T
 }
 
+// A panel that slides in from the right and leaves the same way. It plays the
+// exit animation first and only then tells the parent to remove it.
+const SHEET_EXIT_MS = 200
+function Sheet({ onClose, className = '', children }: { onClose: () => void; className?: string; children: React.ReactNode }) {
+  const [closing, setClosing] = useState(false)
+  const close = () => { if (!closing) { setClosing(true); window.setTimeout(onClose, SHEET_EXIT_MS) } }
+  return <div className={`reader-backdrop ${closing ? 'closing' : ''}`} onClick={close}>
+    <section className={`reader ${className}`} onClick={e => e.stopPropagation()}><button className="close" onClick={close}>×</button>{children}</section>
+  </div>
+}
+
 export default function App() {
   const [lang, setLang] = useState<Lang>(initialLang)
   const t = messages[lang]
@@ -255,11 +266,11 @@ export default function App() {
       </article>)}{entries.length === 0 && <div className="empty">{t.emptyList}</div>}</div>
       {cursor && <button className="load-more" onClick={() => loadEntries(cursor).catch(report)}>{t.loadMore}</button>}
     </main>
-    {selected && <div className="reader-backdrop" onClick={() => setSelected(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSelected(null)}>×</button><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString(t.locale)}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">{t.readOriginal}</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? t.markUnread : t.markRead}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? t.unstar : t.star}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: body?.id !== selected.id ? `<p>${t.loadingBody}</p>` : body.content || `<p>${t.noContent}</p>` }} /></section></div>}
-    {search && <div className="reader-backdrop" onClick={() => setSearch(null)}><section className="reader" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setSearch(null)}>×</button><span className="eyebrow">SEARCH</span><h1>{t.searchTitle(search.q)}</h1><p className="search-hint">{t.searchHint(search.results.length)}</p>
+    {selected && <Sheet key={selected.id} onClose={() => setSelected(null)}><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString(t.locale)}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">{t.readOriginal}</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? t.markUnread : t.markRead}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? t.unstar : t.star}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: body?.id !== selected.id ? `<p>${t.loadingBody}</p>` : body.content || `<p>${t.noContent}</p>` }} /></Sheet>}
+    {search && <Sheet onClose={() => setSearch(null)}><span className="eyebrow">SEARCH</span><h1>{t.searchTitle(search.q)}</h1><p className="search-hint">{t.searchHint(search.results.length)}</p>
       {search.results.map(r => <article key={r.entry_id} className="search-result"><span className="entry-meta">{r.feed_title || r.feed_url} · {new Date(r.sort_at).toLocaleDateString(t.locale)}</span><h2>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title || t.untitled}</a> : r.title || t.untitled}</h2>{r.summary && <p>{r.summary.length > 140 ? r.summary.slice(0, 140) + '…' : r.summary}</p>}{r.subscribed ? <span className="search-subscribed">{t.subscribed}</span> : <button className="outline" onClick={() => subscribeFromSearch(r)}>{t.subscribeBlog}</button>}</article>)}
-      {search.results.length === 0 && <div className="empty">{t.noResults}</div>}</section></div>}
+      {search.results.length === 0 && <div className="empty">{t.noResults}</div>}</Sheet>}
     <Chat t={t} subscribedURLs={subscribedURLs} onSubscribe={addSubscription} />
-    {showManage && <div className="reader-backdrop" onClick={() => setShowManage(false)}><section className="reader manage-panel" onClick={e => e.stopPropagation()}><button className="close" onClick={() => setShowManage(false)}>×</button><span className="eyebrow">ORGANIZE</span><h1>{t.manageTitle}</h1><h2>{t.folders}</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>{t.rename}</button><button onClick={() => deleteFolder(f)}>{t.delete}</button></div>)}<h2>{t.feeds}</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">{t.uncategorized}</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>{t.unsubscribe}</button></div>)}</section></div>}
+    {showManage && <Sheet className="manage-panel" onClose={() => setShowManage(false)}><span className="eyebrow">ORGANIZE</span><h1>{t.manageTitle}</h1><h2>{t.folders}</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>{t.rename}</button><button onClick={() => deleteFolder(f)}>{t.delete}</button></div>)}<h2>{t.feeds}</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">{t.uncategorized}</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>{t.unsubscribe}</button></div>)}</Sheet>}
   </div>
 }
