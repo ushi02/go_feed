@@ -1,8 +1,8 @@
-# go_feed
+# Gugu Reader
 
 [![CI](https://github.com/ushi02/go_feed/actions/workflows/ci.yml/badge.svg)](https://github.com/ushi02/go_feed/actions/workflows/ci.yml)
 
-A multi-user RSS reader for discovering and reading Chinese independent blogs. Besides the usual "subscribe and read", it ships with a pool of about 1,400 independent blogs that you can search by keyword, and Gugu, a pigeon chatbot that recommends blogs it has actually checked.
+Gugu (咕咕, the sound a pigeon makes in Chinese) Reader is a multi-user RSS reader for discovering and reading Chinese independent blogs. Besides the usual "subscribe and read", it ships with a pool of about 1,400 independent blogs that you can search by keyword, and Gugu, a pigeon chatbot that recommends blogs it has actually checked.
 
 Backend: Go (Gin, GORM), MySQL 8. Frontend: React + Vite + TypeScript. Deployment: Docker Compose and Caddy on a single VPS.
 
@@ -123,7 +123,7 @@ The blog pool comes from [timqian/chinese-independent-blogs](https://github.com/
 
 ## 日本語
 
-**go_feed** は、中国語の個人ブログを「見つけて、読む」ためのマルチユーザー RSS リーダーです。通常の購読・既読管理に加えて、約 1,400 の個人ブログを集めた「ブログプール」をキーワードで全文検索し、気に入ったブログをその場で購読できます。
+**Gugu Reader** は、中国語の個人ブログを「見つけて、読む」ためのマルチユーザー RSS リーダーです。「咕咕（gūgū）」は中国語で鳩の鳴き声（日本語の「ポッポ」）で、伝書鳩がブログの新しい記事を届けてくれる、というイメージです。通常の購読・既読管理に加えて、約 1,400 の個人ブログを集めた「ブログプール」をキーワードで全文検索し、気に入ったブログをその場で購読できます。
 
 - **バックエンド：** Go（Gin、GORM）、MySQL 8。API とバックグラウンドで RSS を取得する worker の 2 プログラム構成です。
 - **主な設計：**

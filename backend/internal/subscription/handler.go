@@ -15,7 +15,7 @@ func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 func (h *Handler) Discover(c *gin.Context) {
 	candidates, err := h.svc.Discover(c.Request.Context(), c.Query("url"))
 	if err != nil {
-		httpx.Fail(c, 400, err.Error())
+		httpx.FailCode(c, 400, "discover_failed", err.Error())
 		return
 	}
 	c.JSON(200, gin.H{"candidates": candidates})
@@ -46,7 +46,7 @@ func (h *Handler) CreateFolder(c *gin.Context) {
 	}
 	f, err := h.svc.CreateFolder(c.Request.Context(), httpx.UserID(c), name)
 	if err != nil {
-		httpx.Fail(c, 409, "folder already exists")
+		httpx.FailCode(c, 409, "folder_exists", "folder already exists")
 		return
 	}
 	c.JSON(201, f)
@@ -67,7 +67,7 @@ func (h *Handler) RenameFolder(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		httpx.Fail(c, 409, "folder already exists")
+		httpx.FailCode(c, 409, "folder_exists", "folder already exists")
 		return
 	}
 	c.Status(204)
@@ -117,9 +117,9 @@ func (h *Handler) CreateSubscription(c *gin.Context) {
 	case errors.Is(err, ErrInvalidFolder):
 		httpx.Fail(c, 400, "invalid subscription or folder")
 	case errors.As(err, &invalidURL):
-		httpx.Fail(c, 400, invalidURL.Error())
+		httpx.FailCode(c, 400, "invalid_url", invalidURL.Error())
 	case errors.Is(err, ErrAlreadySubscribed):
-		httpx.Fail(c, 409, "already subscribed")
+		httpx.FailCode(c, 409, "already_subscribed", "already subscribed")
 	default:
 		httpx.Fail(c, 500, "database error")
 	}
@@ -179,7 +179,7 @@ func (h *Handler) RefreshSubscription(c *gin.Context) {
 	case errors.Is(err, ErrNotFound):
 		httpx.Fail(c, 404, "subscription not found")
 	case errors.Is(err, ErrRefreshedRecently):
-		httpx.Fail(c, 429, "feed was refreshed recently")
+		httpx.FailCode(c, 429, "refreshed_recently", "feed was refreshed recently")
 	default:
 		httpx.Fail(c, 500, "database error")
 	}

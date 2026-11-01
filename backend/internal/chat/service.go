@@ -63,7 +63,7 @@ func (s *Service) NewConversation(ctx context.Context, userID uint64) error {
 // Send stores the user's message, streams Gugu's reply through ev and stores
 // the reply too. If the page is closed mid-reply, the part generated so far is
 // still stored and marked incomplete.
-func (s *Service) Send(ctx context.Context, userID uint64, text string, ev Events) error {
+func (s *Service) Send(ctx context.Context, userID uint64, text string, lang Lang, ev Events) error {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > maxInputRunes {
 		return ErrInvalidMessage
@@ -101,7 +101,7 @@ func (s *Service) Send(ctx context.Context, userID uint64, text string, ev Event
 	if err != nil {
 		return err
 	}
-	produced, replyErr := s.Reply(ctx, userID, window(toLLM(stored)), ev)
+	produced, replyErr := s.Reply(ctx, userID, window(toLLM(stored)), lang, ev)
 	save := make([]Message, len(produced))
 	for i, m := range produced {
 		save[i] = fromLLM(conv.ID, userID, m)
@@ -192,13 +192,13 @@ func (f partFilter) Close() string {
 	return text
 }
 
-// Reply runs one turn: the model may call the user's tools, then answers.
+// Reply runs one turn in lang: the model may call the user's tools, then answers.
 // It returns the new messages (tool calls, tool results, the answer). Links
 // in the answer that no tool returned and the user did not write are removed
 // while streaming, before anyone sees them.
-func (s *Service) Reply(ctx context.Context, userID uint64, history []llm.Message, ev Events) ([]llm.Message, error) {
+func (s *Service) Reply(ctx context.Context, userID uint64, history []llm.Message, lang Lang, ev Events) ([]llm.Message, error) {
 	known := knownURLs(history)
-	tools := NewTools(userID, s.subs, s.searcher)
+	tools := NewTools(userID, s.subs, s.searcher, lang)
 	for i := range tools {
 		run, name := tools[i].Run, tools[i].Def.Name
 		tools[i].Run = func(ctx context.Context, args json.RawMessage) (string, error) {
@@ -219,6 +219,6 @@ func (s *Service) Reply(ctx context.Context, userID uint64, history []llm.Messag
 			return out, nil
 		}
 	}
-	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt}}, history...)
-	return RunTools(ctx, s.llm, messages, tools, partFilter{newLinkFilter(known, ev.Text), ev.Break})
+	messages := append([]llm.Message{{Role: llm.RoleSystem, Content: systemPrompt + langPrompt(lang)}}, history...)
+	return RunTools(ctx, s.llm, messages, tools, langReminder(lang), partFilter{newLinkFilter(known, ev.Text), ev.Break})
 }

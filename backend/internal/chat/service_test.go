@@ -57,7 +57,7 @@ func TestMadeUpBlogIsNeverShown(t *testing.T) {
 		call("c1", toolPropose, `{"url":"https://fake-blog.example/","reason":"写得很好"}`),
 		answer("推荐 https://fake-blog.example/ ，还有[另一个](https://also-fake.example/feed)咕"),
 	)
-	produced, err := svc.Reply(context.Background(), 1, user("推荐写 Go 的博客"), Events{})
+	produced, err := svc.Reply(context.Background(), 1, user("推荐写 Go 的博客"), LangZH, Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestVerifiedBlogBecomesCard(t *testing.T) {
 		call("c2", toolPropose, `{"url":"https://real.example/","reason":"讲 Go 并发 https://spam.example 很清楚"}`),
 		answer("看看这篇 https://real.example/go?a=1&b=2 ，订阅地址 https://real.example/feed"),
 	)
-	produced, err := svc.Reply(context.Background(), 1, user("Go"), Events{})
+	produced, err := svc.Reply(context.Background(), 1, user("Go"), LangZH, Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestToolsRunForSignedInUserOnly(t *testing.T) {
 		call("c3", toolPropose, `{"url":"https://real.example/","reason":"r","user_id":7}`),
 		answer("好"),
 	)
-	if _, err := svc.Reply(context.Background(), 42, user("hi"), Events{}); err != nil {
+	if _, err := svc.Reply(context.Background(), 42, user("hi"), LangZH, Events{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range append(subs.userIDs, srch.userIDs...) {
@@ -137,11 +137,83 @@ func TestToolsRunForSignedInUserOnly(t *testing.T) {
 	}
 }
 
+// The page language decides the answer language, and is in the system prompt
+// of every request.
+func TestReplyUsesPageLanguage(t *testing.T) {
+	for lang, want := range map[Lang]string{LangZH: "用中文回答", LangEN: "用英文回答", LangJA: "用日语回答"} {
+		fake := &llm.Fake{Replies: []llm.Message{answer("ok")}}
+		svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{})
+		if _, err := svc.Reply(context.Background(), 1, user("你好"), lang, Events{}); err != nil {
+			t.Fatal(err)
+		}
+		if sys := fake.Requests[0].Messages[0].Content; !strings.Contains(sys, want) {
+			t.Errorf("%s: system prompt lacks %q", lang, want)
+		}
+	}
+}
+
+// A card reason in the wrong language goes back to the model without visiting
+// the blog; the model rewrites it and only then is there a card.
+func TestReasonInWrongLanguageIsRewritten(t *testing.T) {
+	svc, subs, _ := newTestService(
+		call("c1", toolPropose, `{"url":"https://real.example/","reason":"写 Go 并发的博客"}`),
+		call("c2", toolPropose, `{"url":"https://real.example/","reason":"A blog about Go concurrency"}`),
+		answer("Here you go"),
+	)
+	var cards []Card
+	produced, err := svc.Reply(context.Background(), 1, user("Go blogs?"), LangEN, Events{Card: func(c Card) { cards = append(cards, c) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(produced[1].Content, "English") {
+		t.Errorf("first result: %q", produced[1].Content)
+	}
+	if len(subs.userIDs) != 1 {
+		t.Errorf("Verify ran %d times, want once (only for the English reason)", len(subs.userIDs))
+	}
+	if len(cards) != 1 || cards[0].Reason != "A blog about Go concurrency" {
+		t.Fatalf("cards: %+v", cards)
+	}
+}
+
+func TestCheckReason(t *testing.T) {
+	cases := []struct {
+		lang   Lang
+		reason string
+		ok     bool
+	}{
+		{LangZH, "写 Go 并发的博客", true},
+		{LangZH, "A blog about Go", true}, // Chinese is not checked
+		{LangEN, "A blog about Go concurrency", true},
+		{LangEN, "A blog about Go 并发", false},
+		{LangJA, "Go の並行処理について書いているブログ", true},
+		{LangJA, "写 Go 并发的博客", false},      // a whole Chinese sentence: no kana
+		{LangJA, "A blog about Go", false}, // English is not Japanese either
+		{LangJA, "Go の并发について", true},       // known gap: one Chinese word inside Japanese passes
+	}
+	for _, c := range cases {
+		if err := checkReason(c.lang, c.reason); (err == nil) != c.ok {
+			t.Errorf("checkReason(%s, %q) = %v, want ok=%v", c.lang, c.reason, err, c.ok)
+		}
+	}
+}
+
+func TestParseLang(t *testing.T) {
+	for in, want := range map[string]Lang{"": LangZH, "zh": LangZH, "en": LangEN, "ja": LangJA} {
+		if got, ok := ParseLang(in); !ok || got != want {
+			t.Errorf("ParseLang(%q) = %q, %v", in, got, ok)
+		}
+	}
+	if _, ok := ParseLang("fr"); ok {
+		t.Error("fr accepted")
+	}
+}
+
 // The persona goes first in every request, and the user's own message follows.
 func TestReplySendsSystemPrompt(t *testing.T) {
 	fake := &llm.Fake{Replies: []llm.Message{answer("咕")}}
 	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{})
-	if _, err := svc.Reply(context.Background(), 1, user("你好"), Events{}); err != nil {
+	if _, err := svc.Reply(context.Background(), 1, user("你好"), LangZH, Events{}); err != nil {
 		t.Fatal(err)
 	}
 	sent := fake.Requests[0]
@@ -179,7 +251,7 @@ func TestRemoveLinks(t *testing.T) {
 // A URL the user wrote themselves is not made up, so the answer may repeat it.
 func TestUserLinksAreKept(t *testing.T) {
 	svc, _, _ := newTestService(answer("你说的 https://user-said.example 我还没验证过"))
-	produced, err := svc.Reply(context.Background(), 1, user("https://user-said.example 怎么样"), Events{})
+	produced, err := svc.Reply(context.Background(), 1, user("https://user-said.example 怎么样"), LangZH, Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +287,7 @@ func TestReplyMarksEndOfEachAnswerPart(t *testing.T) {
 	)
 	var got []string
 	ev := Events{Text: func(s string) { got = append(got, "text:"+s) }, Break: func() { got = append(got, "break") }}
-	if _, err := svc.Reply(context.Background(), 1, user("Go"), ev); err != nil {
+	if _, err := svc.Reply(context.Background(), 1, user("Go"), LangZH, ev); err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(got, "|")

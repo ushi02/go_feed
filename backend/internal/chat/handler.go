@@ -38,9 +38,16 @@ func (h *Handler) NewConversation(c *gin.Context) {
 func (h *Handler) Send(c *gin.Context) {
 	var req struct {
 		Text string `json:"text"`
+		Lang string `json:"lang"` // the page language, which Gugu answers in
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, 400, "invalid request")
+		return
+	}
+	// The page only sends its own languages, so this needs no error code.
+	lang, ok := ParseLang(req.Lang)
+	if !ok {
+		httpx.Fail(c, 400, "lang must be zh, en or ja")
 		return
 	}
 	started := false
@@ -56,7 +63,7 @@ func (h *Handler) Send(c *gin.Context) {
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
 		c.Writer.Flush()
 	}
-	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, Events{
+	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, lang, Events{
 		Text:  func(piece string) { send("text", gin.H{"text": piece}) },
 		Break: func() { send("break", gin.H{}) },
 		Card:  func(card Card) { send("card", card) },
@@ -67,17 +74,17 @@ func (h *Handler) Send(c *gin.Context) {
 	case c.Request.Context().Err() != nil:
 		// The page was closed; there is nobody to tell.
 	case errors.Is(err, ErrInvalidMessage):
-		httpx.Fail(c, 400, "消息不能为空，也不能超过 1000 字")
+		httpx.FailCode(c, 400, "message_invalid", "message must be 1-1000 characters")
 	case errors.Is(err, ErrDailyLimit):
-		httpx.Fail(c, 429, "咕咕累了：24 小时内最多聊 50 条，晚点再来吧")
+		httpx.FailCode(c, 429, "chat_quota", "at most 50 messages per 24 hours")
 	case errors.Is(err, ErrNotConfigured):
-		httpx.Fail(c, 503, "咕咕还没有配置好（缺少 DEEPSEEK_API_KEY）")
+		httpx.FailCode(c, 503, "chat_unavailable", "chat is not configured (DEEPSEEK_API_KEY is missing)")
 	default:
 		log.Printf("chat: user %d: %v", httpx.UserID(c), err)
 		if started {
-			send("error", gin.H{"error": "回复中断了，请再试一次"})
+			send("error", gin.H{"error": "the reply broke off", "code": "chat_interrupted"})
 		} else {
-			httpx.Fail(c, 502, "咕咕暂时联系不上，请稍后再试")
+			httpx.FailCode(c, 502, "chat_upstream", "the model could not be reached")
 		}
 	}
 }

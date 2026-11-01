@@ -42,3 +42,24 @@ var (
 	ErrDailyLimit     = errors.New("daily message limit reached")
 	errNoConversation = errors.New("no conversation yet")
 )
+
+// Lang is the page language the user picked; Gugu answers in it.
+type Lang string
+
+const (
+	LangZH Lang = "zh"
+	LangEN Lang = "en"
+	LangJA Lang = "ja"
+)
+
+// ParseLang accepts the page's language codes. An empty value means Chinese,
+// so a page loaded before languages were sent still works.
+func ParseLang(s string) (Lang, bool) {
+	switch Lang(s) {
+	case "", LangZH:
+		return LangZH, true
+	case LangEN, LangJA:
+		return Lang(s), true
+	}
+	return "", false
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ushi02/go_feed/backend/internal/llm"
@@ -47,8 +48,9 @@ type Card struct {
 // NewTools returns the tools for one user. The user ID is fixed here, not
 // taken from the model's arguments, so the model cannot read another user's
 // data. Every tool only reads: subscribing happens when the user presses the
-// button on a card, through the normal subscription API.
-func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
+// button on a card, through the normal subscription API. lang is the page
+// language the card reasons must be written in.
+func NewTools(userID uint64, subs Subscriptions, searcher Searcher, lang Lang) []Tool {
 	return []Tool{
 		{
 			Def: llm.ToolDef{
@@ -80,7 +82,7 @@ func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
 			Def: llm.ToolDef{
 				Name:        toolSearchEntries,
 				Description: "按关键词搜索文章，范围是中文独立博客池和用户自己订阅的文章。返回文章和它所属的博客。关键词用空格分开，每个词都要匹配，所以词要少而准。",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"关键词，例如「分布式 数据库」"}},"required":["query"]}`),
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"中文关键词，例如「分布式 数据库」。用户用英文或日语提问时，也要先翻译成中文再搜"}},"required":["query"]}`),
 			},
 			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var a struct{ Query string }
@@ -116,11 +118,15 @@ func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
 			Def: llm.ToolDef{
 				Name:        toolPropose,
 				Description: "向用户推荐一个博客。系统会真实访问这个地址，确认博客存在、有 RSS，通过后在页面上显示一张带订阅按钮的卡片。推荐任何博客都必须调用这个工具；没有通过验证的博客不要再提。",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"博客首页或 RSS 地址"},"reason":{"type":"string","description":"一句话说明为什么推荐，会显示在卡片上"}},"required":["url","reason"]}`),
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"博客首页或 RSS 地址"},"reason":{"type":"string","description":"一句话说明为什么推荐，会显示在卡片上。用系统提示里规定的回答语言写；不是中文时，不能出现中文词，也不要写博客名"}},"required":["url","reason"]}`),
 			},
 			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var a struct{ URL, Reason string }
 				if err := json.Unmarshal(args, &a); err != nil {
+					return "", err
+				}
+				// Checked before visiting the blog, so a retry costs no fetch.
+				if err := checkReason(lang, a.Reason); err != nil {
 					return "", err
 				}
 				v, err := subs.Verify(ctx, userID, a.URL)
@@ -133,6 +139,25 @@ func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
 			},
 		},
 	}
+}
+
+// checkReason catches a card reason in the wrong language, which the model
+// sometimes writes because everything it read was Chinese. The error goes back
+// to the model, which then writes the reason again. It catches whole sentences
+// in the wrong language, not a single Chinese word inside Japanese: both use
+// the same characters, so that is left to the prompt.
+func checkReason(lang Lang, reason string) error {
+	switch lang {
+	case LangEN:
+		if strings.ContainsFunc(reason, func(r rune) bool { return unicode.Is(unicode.Han, r) }) {
+			return errors.New("reason must be written in English, without Chinese characters; call propose_subscription again with an English reason")
+		}
+	case LangJA:
+		if !strings.ContainsFunc(reason, func(r rune) bool { return unicode.In(r, unicode.Hiragana, unicode.Katakana) }) {
+			return errors.New("reason must be written in Japanese; call propose_subscription again with a Japanese reason")
+		}
+	}
+	return nil
 }
 
 // Cards returns the verified recommendations in messages, in order. A tool
