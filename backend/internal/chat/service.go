@@ -32,10 +32,11 @@ type Service struct {
 	llm      llm.Client // nil when no API key is set; the chat then reports ErrNotConfigured
 	subs     Subscriptions
 	searcher Searcher
+	web      WebSearcher // nil: no web search
 }
 
-func NewService(repo *Repo, client llm.Client, subs Subscriptions, searcher Searcher) *Service {
-	return &Service{repo: repo, llm: client, subs: subs, searcher: searcher}
+func NewService(repo *Repo, client llm.Client, subs Subscriptions, searcher Searcher, web WebSearcher) *Service {
+	return &Service{repo: repo, llm: client, subs: subs, searcher: searcher, web: web}
 }
 
 // Items returns the user's current conversation as the page shows it.
@@ -198,7 +199,7 @@ func (f partFilter) Close() string {
 // while streaming, before anyone sees them.
 func (s *Service) Reply(ctx context.Context, userID uint64, history []llm.Message, lang Lang, ev Events) ([]llm.Message, error) {
 	known := knownURLs(history)
-	tools := NewTools(userID, s.subs, s.searcher, lang)
+	tools := NewTools(userID, s.subs, s.searcher, s.web, lang)
 	for i := range tools {
 		run, name := tools[i].Run, tools[i].Def.Name
 		tools[i].Run = func(ctx context.Context, args json.RawMessage) (string, error) {

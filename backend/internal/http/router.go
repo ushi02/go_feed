@@ -18,6 +18,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// DeepSeek must keep satisfying WebSearcher, or Gugu would silently lose web
+// search; this line makes that a compile error instead.
+var _ chat.WebSearcher = (*llm.DeepSeek)(nil)
+
 // NewRouter wires the app. llmClient may be nil: the chat then answers that
 // it is not configured, and everything else works as usual.
 func NewRouter(db *gorm.DB, llmClient llm.Client) *gin.Engine {
@@ -30,7 +34,10 @@ func NewRouter(db *gorm.DB, llmClient llm.Client) *gin.Engine {
 	ent := entry.NewHandler(entry.NewService(entryRepo))
 	srchSvc := search.NewService(search.NewRepo(db))
 	srch := search.NewHandler(srchSvc)
-	ch := chat.NewHandler(chat.NewService(chat.NewRepo(db), llmClient, subSvc, srchSvc))
+	// The DeepSeek client can also search the web; a client that cannot (the
+	// fake in tests) gives Gugu no web_search tool.
+	web, _ := llmClient.(chat.WebSearcher)
+	ch := chat.NewHandler(chat.NewService(chat.NewRepo(db), llmClient, subSvc, srchSvc, web))
 	r := gin.Default()
 	// ClientIP (used by the rate limiter) reads X-Forwarded-For only from
 	// proxies listed in TRUSTED_PROXIES, e.g. Caddy in production. Otherwise
