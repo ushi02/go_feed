@@ -97,6 +97,7 @@
 1. **CI/CD** → 验证：合并到 `main` 后不用登录服务器，网站自动更新，`/healthz` 正常
    - 2026-10-31：前端构建检查已加（`ci.yml` 的 `frontend` job，Node 22 与 Dockerfile 一致）。本地验证：现在构建通过；临时副本里加一个类型错误，构建以 exit 1 失败。push 后 GitHub 上 `go` 和 `frontend` 两个 job 都通过（run 41177183682）
    - CI 已有（`.github/workflows/ci.yml`：`go vet`、`go test -race`），还要加前端构建检查（`npm run build`，TypeScript 写错时 CI 就失败）
+   - **2026-10-31 完成并验证**：合并 PR #5 后自动部署成功（run 41213411769）：`deploy` 通过，状态 succeeded，`/healthz` 正常，服务器上 `git log` 是合并提交（没有手动 pull）。日志里没有令牌（搜 `eyJ` 为 0）
    - 2026-10-31：CD 改成服务器自己验证 GitHub 的 OIDC 令牌（deployhook）。原来的 OIDC + SSM 方案需要 AWS 的「Activate advanced features」，这会永久取消花费上限，所以不用。代码、测试、workflow、设置步骤（deploy-ec2.md 第 9 步）已写好，本地测试通过；等作者在服务器上装好 deployhook、在 GitHub 填 `DEPLOY_URL` 后验证。没填变量时 `deploy` 自动跳过
    - 设计时检查出的问题和对策：只部署令牌里写的 commit（不部署 `main` 上还没测完的新 commit）；拒绝比当前版本旧的 commit（防止旧令牌被重放来回退）；按 IP 限流（验证失败时库会重新下载 GitHub 公钥）；令牌放请求头、在日志里打码；`deploy` job 只跑 curl 和 jq
 2. **英文版** → 验证：浏览器语言是英文时，打开页面直接显示英文；切换按钮可以来回切换，刷新后保持选择
@@ -116,9 +117,19 @@
    - 现状：所有订阅的文章混在一条时间线里，按 `sort_at` 倒序（最新的在最上面）
    - 要先想清楚的问题：用户打开 go_feed 是想做什么，比如「看最近更新了什么」「找值得读的长文」「发现新博客」？答案不同，排列方式也不同
 
+6. **多语言博客池：英文、日语博客的搜索和推荐**（暂缓，2026-11-01 作者决定先放一放；做之前要先决定：项目定位是否从「中文独立博客」扩大）
+   - 英文名单：[kagisearch/smallweb](https://github.com/kagisearch/smallweb) 的 `smallweb.txt`，MIT 许可证，约 4.3 万个个人博客 RSS（只收英文、12 个月内有更新、不卖东西、非 AI 生成），持续维护。数量是中文博客池的 30 倍，全部导入的话 2GB 内存扛不住（文章会到一百多万篇），只能挑几千个
+   - 英文搜索：现在的 ngram 索引是给中日韩文字设计的，英文效果差（搜 `go` 会匹配 `good`），要另外建按单词切分的索引
+   - 日语名单：没找到开放的个人博客名单。[yamadashy/tech-blog-rss-feed](https://github.com/yamadashy/tech-blog-rss-feed)（MIT，约 800 个）是**企业**技术博客。日语搜索可以直接用现有的 ngram 索引
+   - 要做的话先做英文（数据源最清楚）；导入前先在服务器上量数据库实际大小
+
 **运维（不急，但别忘了）：**
 - 备份放到机器之外（EBS 快照或定期下载到本机）
 - AWS Billing 设预算提醒
+- 2026-11-01 服务器内存：available 990Mi，5 个容器共约 220MB（mysql 186MB），swap 已用 893Mi。`vmstat 1 5` 的 si/so 都是 0、CPU 空闲 99%：swap 里是以前（多半是构建镜像时）挤出去的，现在没有在频繁换入换出，内存够用
+- 2026-11-01 硬盘：19G 用了 12G（63%），剩 6.9G。Docker 构建缓存 3.7G、镜像 2.6G（一半可回收）、数据卷 1.1G。`docker builder prune -f` 只腾出约 0.4G（剩 7.3G），和 `docker system df` 的 RECLAIMABLE 一致：大部分缓存被现有镜像引用着，删不掉。部署时的 `docker image prune -f` 不清构建缓存，要观察它会不会随部署一直涨
+- 2026-11-01 MySQL：`go_feed` 数据库 583M，binlog 约 274M（上线两天）。这两天包含第一次抓取整个博客池，不能按这个速度推算。先观察几天每天涨多少（`docker compose -f docker-compose.prod.yml exec mysql sh -c 'ls -l /var/lib/mysql/binlog.0*'`）：每天几十 MB 就保持默认（保留 30 天）；一百多 MB 就把保留时间改成 7 天，不关 binlog（出了数据事故时可以用它恢复到出事前）
+- 换更大的 EC2 之前先算钱：`t4g.medium` 每小时费用约是 `t4g.small` 的两倍，额度可能撑不到 6 个月，额度用完账号会被关闭。硬盘不够就只扩 EBS（20G → 30G，不用停机）；构建时内存不够就改成在 GitHub 上构建镜像；平时内存也不够（vmstat 一直有 si/so）才换机器
 - AWS 额度约 2027-04-14 到期，2027-03-31 之前决定之后怎么办（见 deploy-ec2.md 最后一节）
   - 2026-10-31 查官方文档确认：免费方案在「满 6 个月」或「额度用完」时结束（先到为准），**结束后账号自动关闭**，90 天内升级才能恢复。升级成付费方案（Paid plan）会保留剩余额度，也还能设花费上限；不要「开通高级功能」（不可逆，花费上限永久取消）
   - 当日剩余额度 140 美元，估计每月约 20 美元（未核实），够用到 6 个月期满。所以在 2027-04-14 之前升级成付费方案，并立刻设花费上限
