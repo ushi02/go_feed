@@ -9,9 +9,10 @@
   --text-3: #86868b;        /* tertiary: placeholders, read items */
   --separator: rgba(60, 60, 67, 0.12);
   --border: rgba(60, 60, 67, 0.18);
-  --accent: #0071e3;
-  --accent-hover: #0077ed;
-  --accent-soft: rgba(0, 113, 227, 0.1);
+  --accent: #248a3d;        /* Apple's green, the shade dark enough for text */
+  --accent-hover: #1e7a34;
+  --accent-soft: rgba(36, 138, 61, 0.14);
+  --on-accent: #ffffff;     /* text on accent-colored buttons */
   --danger: #d70015;
   --danger-soft: rgba(215, 0, 21, 0.08);
   --success: #248a3d;
@@ -54,9 +55,10 @@
     --text-3: #6e6e73;
     --separator: rgba(84, 84, 88, 0.6);
     --border: rgba(84, 84, 88, 0.8);
-    --accent: #2997ff;
-    --accent-hover: #47a6ff;
-    --accent-soft: rgba(41, 151, 255, 0.18);
+    --accent: #30d158;
+    --accent-hover: #4cdb6f;
+    --accent-soft: rgba(48, 209, 88, 0.2);
+    --on-accent: #000000;   /* bright green needs dark text */
     --danger: #ff453a;
     --danger-soft: rgba(255, 69, 58, 0.14);
     --success: #30d158;
@@ -89,7 +91,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .primary {
   border: 0;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   border-radius: 980px;
   padding: 9px 18px;
   font-weight: 500;
@@ -172,7 +174,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 }
 .nav-group button:hover, .side-bottom button:hover, .side-bottom a:hover, .import-label:hover { background: var(--hover); }
 .nav-group button.active { background: var(--selected); font-weight: 600; }
-.nav-group button.active .count { background: var(--accent); color: #fff; }
+.nav-group button.active .count { background: var(--accent); color: var(--on-accent); }
 .feeds { max-height: 35vh; overflow: auto; }
 .feed-row { display: flex; align-items: center; }
 .feed-row > button:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -468,7 +470,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .gugu-suggest button:hover { background: var(--fill); }
 /* Message bubbles, like Messages: blue for you, gray for Gugu */
 .bubble { max-width: 85%; padding: 8px 13px; border-radius: 18px; line-height: 1.55; font-size: 15px; overflow-wrap: anywhere; min-width: 0; }
-.bubble.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 6px; white-space: pre-wrap; }
+.bubble.user { align-self: flex-end; background: var(--accent); color: var(--on-accent); border-bottom-right-radius: 6px; white-space: pre-wrap; }
 .bubble.gugu { align-self: flex-start; background: var(--fill-hover); color: var(--text); border-bottom-left-radius: 6px; }
 .bubble.gugu p { margin: 0 0 6px; }
 .bubble.gugu p:last-child { margin-bottom: 0; }
