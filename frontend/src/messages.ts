@@ -43,7 +43,8 @@ const zh = {
 
   subscriptionFallback: '订阅',
   fetching: (n: number) => `正在抓取 ${n} 个订阅源，文章会自动出现…`,
-  fetchFailed: (n: number) => `${n} 个订阅源抓取失败，可在订阅源旁点击刷新重试。`,
+  fetchRetrying: (n: number) => `${n} 个订阅源暂时抓取失败，稍后会自动重试。`,
+  fetchStopped: (n: number) => `${n} 个订阅源已停止抓取（多次失败，或网站已关闭）。可在订阅源旁点击刷新重试。`,
   markAllRead: '全部标为已读',
   addTitle: '添加订阅',
   addHint: '粘贴博客首页或 RSS 地址',
@@ -60,6 +61,8 @@ const zh = {
   star: '收藏',
   unstar: '取消收藏',
   emptyList: '这里还没有文章。添加订阅后，Worker 会自动抓取。',
+  emptyUnread: '没有未读文章了。',
+  emptyStarred: '还没有收藏的文章。点文章旁边的 ☆ 就能收藏。',
   loadMore: '加载更多',
 
   readOriginal: '阅读原文 ↗',
@@ -162,7 +165,8 @@ const en: Messages = {
 
   subscriptionFallback: 'Feed',
   fetching: n => `Fetching ${n} ${n === 1 ? 'feed' : 'feeds'}; articles will show up shortly…`,
-  fetchFailed: n => `${n} ${n === 1 ? 'feed' : 'feeds'} could not be fetched. Use the refresh button next to a feed to retry.`,
+  fetchRetrying: n => `${n} ${n === 1 ? 'feed' : 'feeds'} could not be fetched this time. It will be retried automatically.`,
+  fetchStopped: n => `${n} ${n === 1 ? 'feed is' : 'feeds are'} no longer fetched (repeated failures, or the site is gone). Use the refresh button next to a feed to retry.`,
   markAllRead: 'Mark all as read',
   addTitle: 'Add a feed',
   addHint: 'Paste a blog homepage or RSS address',
@@ -179,6 +183,8 @@ const en: Messages = {
   star: 'Star',
   unstar: 'Unstar',
   emptyList: 'No articles yet. Once you add a feed, the worker fetches it automatically.',
+  emptyUnread: 'All caught up. No unread articles.',
+  emptyStarred: 'No starred articles yet. Tap ☆ next to an article to star it.',
   loadMore: 'Load more',
 
   readOriginal: 'Open original ↗',
@@ -278,7 +284,8 @@ const ja: Messages = {
 
   subscriptionFallback: 'フィード',
   fetching: n => `${n} 件のフィードを取得中です。記事はまもなく表示されます…`,
-  fetchFailed: n => `${n} 件のフィードを取得できませんでした。フィードの横の更新ボタンで再試行できます。`,
+  fetchRetrying: n => `${n} 件のフィードを今回は取得できませんでした。しばらくすると自動で再試行します。`,
+  fetchStopped: n => `${n} 件のフィードの取得を停止しました（失敗が続いたか、サイトが閉鎖されています）。フィードの横の更新ボタンで再試行できます。`,
   markAllRead: 'すべて既読にする',
   addTitle: 'フィードを追加',
   addHint: 'ブログのトップページか RSS の URL を貼り付けてください',
@@ -295,6 +302,8 @@ const ja: Messages = {
   star: 'お気に入りに追加',
   unstar: 'お気に入りから外す',
   emptyList: 'まだ記事がありません。フィードを追加すると、worker が自動で取得します。',
+  emptyUnread: '未読の記事はありません。',
+  emptyStarred: 'お気に入りの記事はまだありません。記事の横の ☆ で追加できます。',
   loadMore: 'さらに読み込む',
 
   readOriginal: '元の記事を開く ↗',

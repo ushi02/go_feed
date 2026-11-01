@@ -233,7 +233,10 @@ export default function App() {
 
   const activeTitle = subID !== null ? subs.find(s => s.id === subID)?.feed.title || t.subscriptionFallback : folderID !== null ? folders.find(f => f.id === folderID)?.name || t.folders : t.allEntries
   const pendingCount = subs.filter(s => !s.feed.last_fetched_at && !s.feed.last_error).length
-  const failedCount = subs.filter(s => s.feed.last_error).length
+  // A failed feed is retried by the Worker with backoff; only one that failed
+  // many times in a row is stopped (disabled_at), and that one needs the user.
+  const retryingCount = subs.filter(s => s.feed.last_error && !s.feed.disabled_at).length
+  const stoppedCount = subs.filter(s => s.feed.disabled_at).length
   const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
   return <div className="shell">
     <aside className="sidebar">
@@ -257,7 +260,7 @@ export default function App() {
       <div className="side-bottom"><label className="import-label">{t.importOPML}<input type="file" accept=".opml,.xml,text/xml" onChange={e => e.target.files?.[0] && importOPML(e.target.files[0])} /></label><a href="/api/opml/export">{t.exportOPML}</a><button onClick={logout}>{t.logout} · {user.username}</button>{langButton}</div>
     </aside>
     <main className="content">
-      <header className="topbar"><div><span className="eyebrow">YOUR READING SPACE</span><h1>{activeTitle}</h1>{pendingCount > 0 && <p className="fetch-status">{t.fetching(pendingCount)}</p>}{failedCount > 0 && <p className="fetch-status error">{t.fetchFailed(failedCount)}</p>}</div><button className="outline" onClick={markRead}>{t.markAllRead}</button></header>
+      <header className="topbar"><div><span className="eyebrow">YOUR READING SPACE</span><h1>{activeTitle}</h1>{pendingCount > 0 && <p className="fetch-status">{t.fetching(pendingCount)}</p>}{retryingCount > 0 && <p className="fetch-status">{t.fetchRetrying(retryingCount)}</p>}{stoppedCount > 0 && <p className="fetch-status error">{t.fetchStopped(stoppedCount)}</p>}</div><button className="outline" onClick={markRead}>{t.markAllRead}</button></header>
       <section className="add-panel"><form onSubmit={discover}><div><strong>{t.addTitle}</strong><p>{t.addHint}</p></div><input type="text" inputMode="url" placeholder="https://example.com" value={feedInput} onChange={e => setFeedInput(e.target.value)} required /><select value={addFolderID ?? ''} onChange={e => setAddFolderID(e.target.value ? Number(e.target.value) : null)}><option value="">{t.noFolder}</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button className="primary" disabled={busy}>{t.discoverButton}</button></form>
         {candidates.length > 0 && <div className="candidates">{t.multipleFound}{candidates.map(x => <button key={x.url} onClick={() => addSubscription(x.url)}>{x.title || x.url}</button>)}</div>}</section>
       {error && <div className="message error">{error}<button onClick={() => setError('')}>×</button></div>}
@@ -266,7 +269,7 @@ export default function App() {
       <div className="entry-list">{entries.map(entry => <article key={entry.id} className={`entry-card ${entry.read ? 'read' : ''}`}>
         <button className="entry-main" onClick={() => openEntry(entry)}><span className="entry-meta">{entry.feed_title || t.feedFallback} · {new Date(entry.sort_at).toLocaleDateString(t.locale)}</span><h2>{entry.title || t.untitled}</h2><span className="entry-link">{t.readArticle}</span></button>
         <button className={`star ${entry.starred_at ? 'on' : ''}`} title={entry.starred_at ? t.unstar : t.star} onClick={() => changeState(entry, { starred: !entry.starred_at })}>{entry.starred_at ? '★' : '☆'}</button>
-      </article>)}{entries.length === 0 && <div className="empty">{t.emptyList}</div>}</div>
+      </article>)}{entries.length === 0 && <div className="empty">{filter === 'unread' ? t.emptyUnread : filter === 'starred' ? t.emptyStarred : t.emptyList}</div>}</div>
       {cursor && <button className="load-more" onClick={() => loadEntries(cursor).catch(report)}>{t.loadMore}</button>}
     </main>
     {selected && <Sheet key={selected.id} onClose={() => setSelected(null)}><span className="eyebrow">{selected.feed_title} · {new Date(selected.sort_at).toLocaleDateString(t.locale)}</span><h1>{selected.title}</h1><div className="reader-actions">{selected.url && <a href={selected.url} target="_blank" rel="noopener noreferrer">{t.readOriginal}</a>}<button onClick={() => changeState(selected, { read: !selected.read })}>{selected.read ? t.markUnread : t.markRead}</button><button onClick={() => changeState(selected, { starred: !selected.starred_at })}>{selected.starred_at ? t.unstar : t.star}</button></div><div className="article-body" dangerouslySetInnerHTML={{ __html: body?.id !== selected.id ? `<p>${t.loadingBody}</p>` : body.content || `<p>${t.noContent}</p>` }} /></Sheet>}
