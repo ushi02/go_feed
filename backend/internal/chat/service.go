@@ -16,7 +16,9 @@ const (
 	// so a long chat does not get slower and more expensive every turn.
 	historyLimit = 20
 	// shownLimit is how many messages the page loads.
-	shownLimit    = 200
+	shownLimit = 200
+	// listLimit is how many conversations the history list shows.
+	listLimit     = 50
 	maxInputRunes = 1000
 	titleRunes    = 50
 	// dailyLimit caps the messages a user may send in limitHours, so a
@@ -39,32 +41,60 @@ func NewService(repo *Repo, client llm.Client, subs Subscriptions, searcher Sear
 	return &Service{repo: repo, llm: client, subs: subs, searcher: searcher, web: web}
 }
 
-// Items returns the user's current conversation as the page shows it.
-func (s *Service) Items(ctx context.Context, userID uint64) ([]Item, error) {
-	conv, err := s.repo.Latest(ctx, userID)
+// conversation returns the conversation with id, or the newest one when id is
+// 0 (errNoConversation if the user has none). An id that is not the user's
+// is ErrNotFound.
+func (s *Service) conversation(ctx context.Context, userID, id uint64) (Conversation, error) {
+	if id == 0 {
+		return s.repo.Latest(ctx, userID)
+	}
+	c, err := s.repo.Get(ctx, userID, id)
 	if errors.Is(err, errNoConversation) {
-		return []Item{}, nil
+		return c, ErrNotFound
+	}
+	return c, err
+}
+
+// Items returns a conversation as the page shows it, with its ID: the one
+// with id, or the newest when id is 0. A user with no conversation gets ID 0
+// and no items.
+func (s *Service) Items(ctx context.Context, userID, id uint64) (uint64, []Item, error) {
+	conv, err := s.conversation(ctx, userID, id)
+	if errors.Is(err, errNoConversation) {
+		return 0, []Item{}, nil
 	}
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	stored, err := s.repo.RecentMessages(ctx, userID, conv.ID, shownLimit)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
-	return items(stored), nil
+	return conv.ID, items(stored), nil
+}
+
+// Conversations lists the user's earlier conversations, most recent first.
+func (s *Service) Conversations(ctx context.Context, userID uint64) ([]Summary, error) {
+	list, err := s.repo.List(ctx, userID, listLimit)
+	if list == nil {
+		list = []Summary{}
+	}
+	return list, err
 }
 
 // NewConversation starts over: the page shows an empty chat, and the model
-// no longer sees the old messages.
-func (s *Service) NewConversation(ctx context.Context, userID uint64) error {
-	return s.repo.CreateConversation(ctx, &Conversation{UserID: userID})
+// no longer sees the old messages. It returns the new conversation's ID.
+func (s *Service) NewConversation(ctx context.Context, userID uint64) (uint64, error) {
+	c := Conversation{UserID: userID}
+	err := s.repo.CreateConversation(ctx, &c)
+	return c.ID, err
 }
 
-// Send stores the user's message, streams Gugu's reply through ev and stores
-// the reply too. If the page is closed mid-reply, the part generated so far is
-// still stored and marked incomplete.
-func (s *Service) Send(ctx context.Context, userID uint64, text string, lang Lang, ev Events) error {
+// Send stores the user's message in conversation id (the newest when id is
+// 0), streams Gugu's reply through ev and stores the reply too. If the page is
+// closed mid-reply, the part generated so far is still stored and marked
+// incomplete.
+func (s *Service) Send(ctx context.Context, userID, id uint64, text string, lang Lang, ev Events) error {
 	text = strings.TrimSpace(text)
 	if text == "" || utf8.RuneCountInString(text) > maxInputRunes {
 		return ErrInvalidMessage
@@ -82,7 +112,7 @@ func (s *Service) Send(ctx context.Context, userID uint64, text string, lang Lan
 	if sent >= dailyLimit {
 		return ErrDailyLimit
 	}
-	conv, err := s.repo.Latest(ctx, userID)
+	conv, err := s.conversation(ctx, userID, id)
 	if errors.Is(err, errNoConversation) {
 		conv = Conversation{UserID: userID}
 		err = s.repo.CreateConversation(ctx, &conv)

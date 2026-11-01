@@ -72,6 +72,7 @@ func NewRouter(db *gorm.DB, llmClient llm.Client) *gin.Engine {
 	protected.POST("/entries/mark-read", ent.MarkRead)
 	protected.GET("/search", srch.Search)
 	protected.GET("/chat", ch.Items)
+	protected.GET("/chat/conversations", ch.Conversations)
 	protected.POST("/chat/conversations", ch.NewConversation)
 	protected.POST("/chat/messages", ch.Send)
 	protected.POST("/opml/import", sub.ImportOPML)

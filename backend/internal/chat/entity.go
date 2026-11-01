@@ -12,6 +12,13 @@ type Conversation struct {
 	CreatedAt time.Time
 }
 
+// Summary is one entry of the conversation list.
+type Summary struct {
+	ID            uint64    `json:"id"`
+	Title         string    `json:"title"`
+	LastMessageAt time.Time `json:"last_message_at"`
+}
+
 // Message is one stored chat message, in the same shape it had when sent to
 // or received from the model.
 type Message struct {
@@ -40,6 +47,9 @@ var (
 	ErrNotConfigured  = errors.New("chatbot is not configured")
 	ErrInvalidMessage = errors.New("message is empty or too long")
 	ErrDailyLimit     = errors.New("daily message limit reached")
+	// ErrNotFound: no such conversation for this user. Another user's
+	// conversation looks exactly the same, so its existence is not revealed.
+	ErrNotFound       = errors.New("conversation not found")
 	errNoConversation = errors.New("no conversation yet")
 )
 

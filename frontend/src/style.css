@@ -76,6 +76,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Rules like display: flex would otherwise override the hidden attribute. */
+[hidden] { display: none !important; }
 body { margin: 0; background: var(--bg); }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -470,6 +472,15 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .gugu-head small { color: var(--text-2); font-size: 12px; }
 .gugu-head button { border: 0; background: var(--fill); color: var(--accent); border-radius: 980px; padding: 5px 12px; font-size: 13px; }
 .gugu-head button:hover { background: var(--fill-hover); }
+.gugu-head button.on { background: var(--accent-soft); }
+.gugu-history { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.gugu-history > strong { font-size: 13px; color: var(--text-2); font-weight: 600; margin-bottom: 6px; }
+.gugu-history > p { color: var(--text-3); }
+.gugu-history button { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border: 0; background: transparent; text-align: left; padding: 10px 12px; border-radius: var(--radius-sm); }
+.gugu-history button:hover { background: var(--hover); }
+.gugu-history button.current { background: var(--selected); font-weight: 600; }
+.gugu-history button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gugu-history button small { color: var(--text-3); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .gugu-head .gugu-close { width: 28px; height: 28px; padding: 0; border-radius: 50%; color: var(--text-2); font-size: 17px; }
 .gugu-body { flex: 1; overflow-y: auto; padding: 18px 16px; display: flex; flex-direction: column; gap: 8px; }
 .gugu-empty { margin: auto 0; text-align: center; color: var(--text-2); line-height: 1.7; }

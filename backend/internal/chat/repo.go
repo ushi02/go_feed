@@ -21,6 +21,32 @@ func (r *Repo) Latest(ctx context.Context, userID uint64) (Conversation, error) 
 	return c, err
 }
 
+// Get returns one of the user's conversations. Another user's conversation is
+// errNoConversation, the same as one that does not exist.
+func (r *Repo) Get(ctx context.Context, userID, id uint64) (Conversation, error) {
+	var c Conversation
+	err := r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).First(&c).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return c, errNoConversation
+	}
+	return c, err
+}
+
+// List returns the user's conversations that have messages, the one used most
+// recently first. A conversation started but never used has no messages, so
+// the join leaves it out. Message IDs grow over time, so the newest message
+// has the largest ID; idx_messages_conversation covers the join.
+func (r *Repo) List(ctx context.Context, userID uint64, limit int) ([]Summary, error) {
+	var out []Summary
+	err := r.db.WithContext(ctx).Table("conversations c").
+		Select("c.id, c.title, MAX(m.created_at) AS last_message_at").
+		Joins("JOIN messages m ON m.conversation_id = c.id AND m.user_id = c.user_id").
+		Where("c.user_id = ?", userID).
+		Group("c.id, c.title").Order("MAX(m.id) DESC").Limit(limit).
+		Scan(&out).Error
+	return out, err
+}
+
 func (r *Repo) CreateConversation(ctx context.Context, c *Conversation) error {
 	return r.db.WithContext(ctx).Create(c).Error
 }

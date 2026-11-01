@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -40,10 +41,17 @@ func (c *client) chatItems() []chatItem {
 	return out.Items
 }
 
-// sendChat posts a message and returns the server-sent events of the reply.
+// sendChat posts a message to the newest conversation and returns the
+// server-sent events of the reply.
 func (c *client) sendChat(text string) []sseEvent {
 	c.t.Helper()
-	body, _ := json.Marshal(map[string]string{"text": text})
+	return c.sendChatIn(0, text)
+}
+
+// sendChatIn posts a message to conversation id (0: the newest).
+func (c *client) sendChatIn(id uint64, text string) []sseEvent {
+	c.t.Helper()
+	body, _ := json.Marshal(map[string]any{"text": text, "conversation_id": id})
 	req := httptest.NewRequest("POST", "/api/chat/messages", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", testOrigin)
@@ -107,7 +115,7 @@ func TestChatConversationIsStored(t *testing.T) {
 		t.Fatalf("bob sees alice's chat: %+v", other)
 	}
 
-	alice.do("POST", "/api/chat/conversations", nil, 204, nil)
+	alice.do("POST", "/api/chat/conversations", nil, 201, nil)
 	if items := alice.chatItems(); len(items) != 0 {
 		t.Fatalf("new conversation is not empty: %+v", items)
 	}
@@ -212,7 +220,7 @@ func TestChatDailyLimit(t *testing.T) {
 		fake.Replies = append(fake.Replies, llm.Message{Role: llm.RoleAssistant, Content: "好的"})
 	}
 	c := newChatClient(t, "chat-limit", fake)
-	c.do("POST", "/api/chat/conversations", nil, 204, nil)
+	c.do("POST", "/api/chat/conversations", nil, 201, nil)
 	var userID, convID uint64
 	database.Raw("SELECT id FROM users WHERE username = ?", "chat-limit").Scan(&userID)
 	database.Raw("SELECT id FROM conversations WHERE user_id = ?", userID).Scan(&convID)
@@ -236,4 +244,99 @@ func TestChatDailyLimit(t *testing.T) {
 
 	other := newChatClient(t, "chat-limit-other", fake)
 	other.sendChat("我还能聊")
+}
+
+type conversationList struct {
+	Conversations []struct {
+		ID    uint64 `json:"id"`
+		Title string `json:"title"`
+	} `json:"conversations"`
+}
+
+func (c *client) conversations() []uint64 {
+	var out conversationList
+	c.do("GET", "/api/chat/conversations", nil, 200, &out)
+	var ids []uint64
+	for _, conv := range out.Conversations {
+		ids = append(ids, conv.ID)
+	}
+	return ids
+}
+
+func (c *client) itemsOf(id uint64) []chatItem {
+	var out struct {
+		ConversationID uint64     `json:"conversation_id"`
+		Items          []chatItem `json:"items"`
+	}
+	c.do("GET", "/api/chat?conversation_id="+strconv.FormatUint(id, 10), nil, 200, &out)
+	if out.ConversationID != id {
+		c.t.Fatalf("asked for conversation %d, got %d", id, out.ConversationID)
+	}
+	return out.Items
+}
+
+// The history lists conversations with messages, most recently used first;
+// an old conversation can be opened and continued.
+func TestChatConversationList(t *testing.T) {
+	skipShort(t)
+	fake := &llm.Fake{}
+	for range 4 {
+		fake.Replies = append(fake.Replies, llm.Message{Role: llm.RoleAssistant, Content: "好的"})
+	}
+	alice := newChatClient(t, "history-alice", fake)
+	alice.sendChat("第一个话题")
+	var first struct {
+		ConversationID uint64 `json:"conversation_id"`
+	}
+	alice.do("GET", "/api/chat", nil, 200, &first)
+	a := first.ConversationID
+
+	var created struct{ ID uint64 }
+	alice.do("POST", "/api/chat/conversations", nil, 201, &created)
+	b := created.ID
+	// The new conversation is the newest but still empty, so it is not listed.
+	if got := alice.conversations(); len(got) != 1 || got[0] != a {
+		t.Fatalf("list with an empty new conversation: %v, want [%d]", got, a)
+	}
+
+	alice.sendChatIn(b, "第二个话题")
+	if got := alice.conversations(); len(got) != 2 || got[0] != b || got[1] != a {
+		t.Fatalf("list: %v, want [%d %d]", got, b, a)
+	}
+	// Continuing the old conversation moves it to the top and adds to it only.
+	alice.sendChatIn(a, "回到第一个")
+	if got := alice.conversations(); got[0] != a {
+		t.Fatalf("list after continuing %d: %v", a, got)
+	}
+	if items := alice.itemsOf(a); len(items) != 4 || items[2].Text != "回到第一个" {
+		t.Fatalf("conversation %d: %+v", a, items)
+	}
+	if items := alice.itemsOf(b); len(items) != 2 || items[0].Text != "第二个话题" {
+		t.Fatalf("conversation %d: %+v", b, items)
+	}
+	// The model saw only the opened conversation: its last request holds the
+	// first topic, not the second.
+	last := fake.Requests[len(fake.Requests)-1].Messages
+	var seen []string
+	for _, m := range last {
+		if m.Role == llm.RoleUser {
+			seen = append(seen, m.Content)
+		}
+	}
+	if strings.Join(seen, "|") != "第一个话题|回到第一个" {
+		t.Fatalf("model saw %v", seen)
+	}
+
+	// Another user can neither list, open nor write to alice's conversations,
+	// and is told the same as for one that does not exist.
+	bob := newChatClient(t, "history-bob", &llm.Fake{Replies: []llm.Message{{Role: llm.RoleAssistant, Content: "x"}}})
+	if got := bob.conversations(); len(got) != 0 {
+		t.Fatalf("bob lists %v", got)
+	}
+	bob.do("GET", "/api/chat?conversation_id="+strconv.FormatUint(a, 10), nil, 404, nil)
+	bob.do("POST", "/api/chat/messages", map[string]any{"text": "偷看", "conversation_id": a}, 404, nil)
+	if items := alice.itemsOf(a); len(items) != 4 {
+		t.Fatalf("bob's message reached alice: %+v", items)
+	}
+	bob.do("GET", "/api/chat?conversation_id=abc", nil, 400, nil)
 }

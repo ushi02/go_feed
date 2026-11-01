@@ -4,6 +4,7 @@ import { ApiError, apiError, errorText, type Lang, type Messages } from './messa
 type Card = { feed_url: string; title: string; site_url: string; subscribed: boolean; reason: string }
 // open: an answer part still receiving text; a "break" event closes it.
 type Item = { id?: number; kind: 'user' | 'assistant' | 'card'; text?: string; card?: Card; incomplete?: boolean; open?: boolean }
+type Summary = { id: number; title: string; last_message_at: string }
 
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`/api${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...init })
@@ -95,12 +96,20 @@ export function Pigeon({ size = 56 }: { size?: number }) {
 // Gugu answers in lang, the language picked on the page.
 export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscribe }: { t: Messages; lang: Lang; open: boolean; setOpen: (open: boolean) => void; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
   const [items, setItems] = useState<Item[] | null>(null)
+  // The conversation shown, sent with every message; 0 until the server names
+  // one (a user who never chatted).
+  const [convID, setConvID] = useState(0)
+  // The history list while it is open, instead of the messages.
+  const [history, setHistory] = useState<Summary[] | null>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  const load = () => api('/chat').then(r => r.json() as Promise<{ items: Item[] }>).then(d => setItems(d.items)).catch(e => setError(errorText(t, e)))
+  const load = (id = convID) => api(id ? `/chat?conversation_id=${id}` : '/chat')
+    .then(r => r.json() as Promise<{ conversation_id: number; items: Item[] }>)
+    .then(d => { setConvID(d.conversation_id); setItems(d.items) })
+    .catch(e => setError(errorText(t, e)))
   useEffect(() => { if (open && items === null) load() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }) }, [items, open])
 
@@ -110,7 +119,7 @@ export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscri
     setInput(''); setError(''); setSending(true)
     setItems(it => [...(it || []), { kind: 'user', text }])
     try {
-      const res = await api('/chat/messages', { method: 'POST', body: JSON.stringify({ text, lang }) })
+      const res = await api('/chat/messages', { method: 'POST', body: JSON.stringify({ text, lang, conversation_id: convID }) })
       await readEvents(res.body!, (event, data) => {
         if (event === 'text') setItems(it => appendText(it || [], data.text))
         else if (event === 'break') setItems(it => closeLast(it || []))
@@ -128,7 +137,24 @@ export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscri
 
   async function newConversation() {
     if (sending) return
-    try { await api('/chat/conversations', { method: 'POST' }); setItems([]); setError('') } catch (e) { setError(errorText(t, e)) }
+    try {
+      const res = await api('/chat/conversations', { method: 'POST' })
+      const { id } = await res.json() as { id: number }
+      setConvID(id); setItems([]); setHistory(null); setError('')
+    } catch (e) { setError(errorText(t, e)) }
+  }
+
+  async function toggleHistory() {
+    if (history) { setHistory(null); return }
+    try {
+      const res = await api('/chat/conversations')
+      setHistory((await res.json() as { conversations: Summary[] }).conversations)
+    } catch (e) { setError(errorText(t, e)) }
+  }
+
+  function openConversation(id: number) {
+    setHistory(null)
+    if (id !== convID) { setError(''); load(id) }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -149,10 +175,20 @@ export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscri
       <header className="gugu-head">
         <Pigeon size={40} />
         <div><strong>{t.guguName}</strong><small>{t.guguTagline}</small></div>
+        {/* Switching while Gugu answers would mix the reply into another chat. */}
+        <button className={history ? 'on' : ''} onClick={toggleHistory} disabled={sending} aria-pressed={!!history}>{t.history}</button>
         <button onClick={newConversation} disabled={sending} title={t.newChatTitle}>{t.newChat}</button>
         <button className="gugu-close" onClick={() => setOpen(false)} aria-label={t.close}>×</button>
       </header>
-      <div className="gugu-body" ref={bodyRef}>
+      {history && <div className="gugu-history">
+        <strong>{t.historyTitle}</strong>
+        {history.length === 0 && <p>{t.historyEmpty}</p>}
+        {history.map(c => <button key={c.id} className={c.id === convID ? 'current' : ''} onClick={() => openConversation(c.id)}>
+          <span>{c.title}</span>
+          <small>{new Date(c.last_message_at).toLocaleString(t.locale, { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small>
+        </button>)}
+      </div>}
+      <div className="gugu-body" ref={bodyRef} hidden={!!history}>
         {items?.length === 0 && <div className="gugu-empty">
           <Pigeon size={72} />
           <p>{t.guguHello}<br />{t.guguAsk}</p>
@@ -175,7 +211,7 @@ export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscri
         {waiting && <div className="bubble gugu typing"><span /><span /><span /></div>}
       </div>
       {error && <div className="gugu-error">{error}<button onClick={() => setError('')} aria-label={t.close}>×</button></div>}
-      <form className="gugu-input" onSubmit={e => { e.preventDefault(); send(input) }}>
+      <form hidden={!!history} className="gugu-input" onSubmit={e => { e.preventDefault(); send(input) }}>
         <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKeyDown} placeholder={t.chatPlaceholder} rows={2} maxLength={1000} disabled={sending} />
         <button className="primary" disabled={sending || !input.trim()}>{t.send}</button>
       </form>
