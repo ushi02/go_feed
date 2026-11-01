@@ -44,7 +44,7 @@ func newTestService(replies ...llm.Message) (*Service, *fakeSubs, *fakeSearch) {
 		"https://real.example/": {FeedURL: "https://real.example/feed", Title: "真实博客", SiteURL: "https://real.example/"},
 	}}
 	srch := &fakeSearch{}
-	return NewService(nil, &llm.Fake{Replies: replies}, subs, srch), subs, srch
+	return NewService(nil, &llm.Fake{Replies: replies}, subs, srch, nil), subs, srch
 }
 
 func user(text string) []llm.Message { return []llm.Message{{Role: llm.RoleUser, Content: text}} }
@@ -142,7 +142,7 @@ func TestToolsRunForSignedInUserOnly(t *testing.T) {
 func TestReplyUsesPageLanguage(t *testing.T) {
 	for lang, want := range map[Lang]string{LangZH: "用中文回答", LangEN: "用英文回答", LangJA: "用日语回答"} {
 		fake := &llm.Fake{Replies: []llm.Message{answer("ok")}}
-		svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{})
+		svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{}, nil)
 		if _, err := svc.Reply(context.Background(), 1, user("你好"), lang, Events{}); err != nil {
 			t.Fatal(err)
 		}
@@ -212,7 +212,7 @@ func TestParseLang(t *testing.T) {
 // The persona goes first in every request, and the user's own message follows.
 func TestReplySendsSystemPrompt(t *testing.T) {
 	fake := &llm.Fake{Replies: []llm.Message{answer("咕")}}
-	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{})
+	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{}, nil)
 	if _, err := svc.Reply(context.Background(), 1, user("你好"), LangZH, Events{}); err != nil {
 		t.Fatal(err)
 	}
@@ -293,5 +293,100 @@ func TestReplyMarksEndOfEachAnswerPart(t *testing.T) {
 	joined := strings.Join(got, "|")
 	if !strings.HasSuffix(joined, "break") || strings.Count(joined, "break") != 2 || !strings.Contains(joined, "。|break|text:") {
 		t.Fatalf("events: %s", joined)
+	}
+}
+
+// fakeWeb returns one page per query and records the queries.
+type fakeWeb struct {
+	queries []string
+	err     error
+}
+
+func (f *fakeWeb) Search(ctx context.Context, query string, count int) ([]llm.WebResult, error) {
+	f.queries = append(f.queries, query)
+	if f.err != nil {
+		return nil, f.err
+	}
+	// The real API adds anchors like "#1" to some URLs.
+	return []llm.WebResult{{Title: "在日本找工作的经验", URL: "https://web.example/jp-job#1", SiteName: "某博客", Summary: "面试流程"}}, nil
+}
+
+// Without a web searcher Gugu has no web_search tool; with one it does.
+func TestWebSearchToolOnlyWhenConfigured(t *testing.T) {
+	names := func(web WebSearcher) []string {
+		var out []string
+		for _, tool := range NewTools(1, &fakeSubs{}, &fakeSearch{}, web, LangZH) {
+			out = append(out, tool.Def.Name)
+		}
+		return out
+	}
+	if got := names(nil); strings.Contains(strings.Join(got, ","), toolWebSearch) {
+		t.Errorf("tools without web: %v", got)
+	}
+	if got := names(&fakeWeb{}); !strings.Contains(strings.Join(got, ","), toolWebSearch) {
+		t.Errorf("tools with web: %v", got)
+	}
+}
+
+// A page found on the web may be linked in the answer, like any tool result;
+// a link no tool returned is still removed.
+func TestWebSearchResultsCanBeLinked(t *testing.T) {
+	web := &fakeWeb{}
+	fake := &llm.Fake{Replies: []llm.Message{
+		call("c1", toolWebSearch, `{"query":"日本 求职 经验"}`),
+		answer("网上找到一篇：https://web.example/jp-job ，还有 https://made-up.example/x"),
+	}}
+	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{}, web)
+	produced, err := svc.Reply(context.Background(), 1, user("找日本求职的文章"), LangZH, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(web.queries) != 1 || web.queries[0] != "日本 求职 经验" {
+		t.Fatalf("queries: %v", web.queries)
+	}
+	// The model gets the URL without the anchor, so the link it copies matches.
+	if got := produced[1].Content; strings.Contains(got, "#1") || !strings.Contains(got, `"url":"https://web.example/jp-job"`) {
+		t.Fatalf("tool result: %s", got)
+	}
+	text := produced[len(produced)-1].Content
+	if !strings.Contains(text, "https://web.example/jp-job") || strings.Contains(text, "made-up.example") {
+		t.Fatalf("answer: %q", text)
+	}
+}
+
+// Each search costs money, so one answer may search the web only a few times.
+func TestWebSearchLimitPerAnswer(t *testing.T) {
+	web := &fakeWeb{}
+	var replies []llm.Message
+	for range maxWebSearches + 1 {
+		replies = append(replies, call("c", toolWebSearch, `{"query":"again"}`))
+	}
+	replies = append(replies, answer("done"))
+	svc := NewService(nil, &llm.Fake{Replies: replies}, &fakeSubs{}, &fakeSearch{}, web)
+	produced, err := svc.Reply(context.Background(), 1, user("hi"), LangZH, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(web.queries) != maxWebSearches {
+		t.Fatalf("searched %d times, want %d", len(web.queries), maxWebSearches)
+	}
+	// The extra call is answered with an error the model can read.
+	if got := produced[2*maxWebSearches+1].Content; !strings.Contains(got, "limit") {
+		t.Fatalf("extra call result: %q", got)
+	}
+}
+
+// When the search API fails (e.g. the balance ran out), the model is told
+// only that web search is unavailable, and can still answer.
+func TestWebSearchFailureIsReported(t *testing.T) {
+	web := &fakeWeb{err: fmt.Errorf("deepseek search: HTTP 402: Insufficient Balance")}
+	fake := &llm.Fake{Replies: []llm.Message{call("c1", toolWebSearch, `{"query":"go"}`), answer("暂时上不了网")}}
+	svc := NewService(nil, fake, &fakeSubs{}, &fakeSearch{}, web)
+	produced, err := svc.Reply(context.Background(), 1, user("hi"), LangZH, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := produced[1].Content; !strings.Contains(got, "unavailable") || strings.Contains(got, "402") {
+		t.Fatalf("tool result: %q", got)
 	}
 }
