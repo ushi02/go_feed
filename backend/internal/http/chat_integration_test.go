@@ -125,9 +125,10 @@ func TestChatSendsOnlyRecentHistory(t *testing.T) {
 		c.sendChat("再聊一句")
 	}
 	// At the 15th send 29 messages are stored. The newest 20 begin with an
-	// answer, which is dropped so the history starts with a question: 19 remain.
+	// answer, which is dropped so the history starts with a question: 19 remain,
+	// between the system prompt and the language reminder that ends every request.
 	last := fake.Requests[len(fake.Requests)-1].Messages
-	if len(last) != 1+19 || last[0].Role != llm.RoleSystem || last[1].Role != llm.RoleUser {
+	if len(last) != 1+19+1 || last[0].Role != llm.RoleSystem || last[1].Role != llm.RoleUser || last[len(last)-1].Role != llm.RoleSystem {
 		t.Fatalf("last request has %d messages, first after system: %+v", len(last), last[1])
 	}
 	if items := c.chatItems(); len(items) != 30 {

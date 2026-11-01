@@ -11,6 +11,8 @@ type Candidate = { url: string; title: string }
 type SearchResult = { entry_id: number; title: string; url: string; summary: string; sort_at: string; feed_id: number; feed_title: string; feed_url: string; subscribed: boolean }
 type Filter = 'all' | 'unread' | 'starred'
 
+const repoURL = 'https://github.com/ushi02/go_feed'
+
 // feedState changes whenever the Worker finishes a fetch, successful or not.
 const feedState = (s: Subscription) => `${s.feed.last_fetched_at}|${s.feed.last_error}`
 
@@ -229,6 +231,7 @@ export default function App() {
     </form>
     <button className="text-button" onClick={() => setLoginMode(loginMode === 'login' ? 'register' : 'login')}>{loginMode === 'login' ? t.toRegister : t.toLogin}</button>
     {error && <p className="error">{error}</p>}
+    <a className="source-link" href={repoURL} target="_blank" rel="noopener noreferrer">{t.sourceCode} ↗</a>
   </section></main>
 
   const activeTitle = subID !== null ? subs.find(s => s.id === subID)?.feed.title || t.subscriptionFallback : folderID !== null ? folders.find(f => f.id === folderID)?.name || t.folders : t.allEntries
@@ -257,7 +260,7 @@ export default function App() {
         <button className="icon" title={t.refresh} onClick={() => refreshSubscription(s.id)}>↻</button>
         <button className="icon" title={t.unsubscribe} onClick={() => removeSubscription(s.id)}>×</button>
       </div>)}</div>
-      <div className="side-bottom"><label className="import-label">{t.importOPML}<input type="file" accept=".opml,.xml,text/xml" onChange={e => e.target.files?.[0] && importOPML(e.target.files[0])} /></label><a href="/api/opml/export">{t.exportOPML}</a><button onClick={logout}>{t.logout} · {user.username}</button>{langButton}</div>
+      <div className="side-bottom"><label className="import-label">{t.importOPML}<input type="file" accept=".opml,.xml,text/xml" onChange={e => e.target.files?.[0] && importOPML(e.target.files[0])} /></label><a href="/api/opml/export">{t.exportOPML}</a><a href={repoURL} target="_blank" rel="noopener noreferrer">{t.sourceCode} ↗</a><button onClick={logout}>{t.logout} · {user.username}</button>{langButton}</div>
     </aside>
     <main className="content">
       <header className="topbar"><div><span className="eyebrow">YOUR READING SPACE</span><h1>{activeTitle}</h1>{pendingCount > 0 && <p className="fetch-status">{t.fetching(pendingCount)}</p>}{retryingCount > 0 && <p className="fetch-status">{t.fetchRetrying(retryingCount)}</p>}{stoppedCount > 0 && <p className="fetch-status error">{t.fetchStopped(stoppedCount)}</p>}</div><button className="outline" onClick={markRead}>{t.markAllRead}</button></header>

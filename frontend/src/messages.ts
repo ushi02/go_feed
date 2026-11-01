@@ -40,6 +40,7 @@ const zh = {
   importOPML: '导入 OPML',
   exportOPML: '导出 OPML',
   logout: '退出',
+  sourceCode: '源代码（GitHub）',
 
   subscriptionFallback: '订阅',
   fetching: (n: number) => `正在抓取 ${n} 个订阅源，文章会自动出现…`,
@@ -162,6 +163,7 @@ const en: Messages = {
   importOPML: 'Import OPML',
   exportOPML: 'Export OPML',
   logout: 'Log out',
+  sourceCode: 'Source code (GitHub)',
 
   subscriptionFallback: 'Feed',
   fetching: n => `Fetching ${n} ${n === 1 ? 'feed' : 'feeds'}; articles will show up shortly…`,
@@ -281,6 +283,7 @@ const ja: Messages = {
   importOPML: 'OPML をインポート',
   exportOPML: 'OPML をエクスポート',
   logout: 'ログアウト',
+  sourceCode: 'ソースコード（GitHub）',
 
   subscriptionFallback: 'フィード',
   fetching: n => `${n} 件のフィードを取得中です。記事はまもなく表示されます…`,
