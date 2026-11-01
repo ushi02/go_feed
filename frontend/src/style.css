@@ -49,3 +49,4 @@
 .gugu-input textarea{flex:1;min-width:0;resize:none;border:1px solid #bdcbc3;border-radius:10px;padding:9px 11px;font:inherit;font-size:14px;background:#fff}
 .gugu-input .primary{align-self:flex-end}
 @media(max-width:560px){.gugu-panel{width:100vw;border-left:0}.gugu-button{right:16px;bottom:16px}}
+.auth-top{display:flex;justify-content:space-between;align-items:center}.auth-top .lang-toggle{border:1px solid #baccc0;background:#fff;color:#30564d;border-radius:8px;padding:5px 10px;font-size:12px}.auth-top .lang-toggle:hover{background:#e5eee8}

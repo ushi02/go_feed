@@ -64,6 +64,14 @@ func TestRateLimitBehindTrustedProxy(t *testing.T) {
 	if code := register(r, "203.0.113.1"); code != 429 {
 		t.Fatalf("6th request from same client = %d, want 429", code)
 	}
+	// The page shows its own text for the code, in the user's language.
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/register", strings.NewReader("{"))
+	req.Header.Set("X-Forwarded-For", "203.0.113.1")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), `"code":"too_many_attempts"`) {
+		t.Fatalf("429 body = %s, want code too_many_attempts", rec.Body)
+	}
 	if code := register(r, "203.0.113.2"); code != 400 {
 		t.Fatalf("another client behind the proxy = %d, want 400 (own bucket)", code)
 	}

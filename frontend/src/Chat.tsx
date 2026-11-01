@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import { ApiError, apiError, errorText, type Messages } from './messages'
 
 type Card = { feed_url: string; title: string; site_url: string; subscribed: boolean; reason: string }
 // open: an answer part still receiving text; a "break" event closes it.
 type Item = { id?: number; kind: 'user' | 'assistant' | 'card'; text?: string; card?: Card; incomplete?: boolean; open?: boolean }
 
-const suggestions = ['推荐几个写 Go 后端的博客', '想看点生活类的博客', '我订阅的文章里有讲数据库的吗']
-
 async function api(path: string, init: RequestInit = {}): Promise<Response> {
   const res = await fetch(`/api${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json' }, ...init })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}))
-    throw new Error(body.error || `请求失败 (${res.status})`)
-  }
+  if (!res.ok) throw await apiError(res)
   return res
 }
 
@@ -107,7 +103,7 @@ export function Pigeon({ size = 56 }: { size?: number }) {
   </svg>
 }
 
-export default function Chat({ subscribedURLs, onSubscribe }: { subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
+export default function Chat({ t, subscribedURLs, onSubscribe }: { t: Messages; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<Item[] | null>(null)
   const [input, setInput] = useState('')
@@ -115,7 +111,7 @@ export default function Chat({ subscribedURLs, onSubscribe }: { subscribedURLs: 
   const [error, setError] = useState('')
   const bodyRef = useRef<HTMLDivElement>(null)
 
-  const load = () => api('/chat').then(r => r.json() as Promise<{ items: Item[] }>).then(d => setItems(d.items)).catch(e => setError(e.message))
+  const load = () => api('/chat').then(r => r.json() as Promise<{ items: Item[] }>).then(d => setItems(d.items)).catch(e => setError(errorText(t, e)))
   useEffect(() => { if (open && items === null) load() }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight }) }, [items, open])
 
@@ -130,20 +126,20 @@ export default function Chat({ subscribedURLs, onSubscribe }: { subscribedURLs: 
         if (event === 'text') setItems(it => appendText(it || [], data.text))
         else if (event === 'break') setItems(it => closeLast(it || []))
         else if (event === 'card') setItems(it => [...closeLast(it || []), { kind: 'card', card: data }])
-        else if (event === 'error') { setItems(it => (it || []).map((x, i, a) => i === a.length - 1 && x.kind === 'assistant' ? { ...x, incomplete: true } : x)); setError(data.error) }
+        else if (event === 'error') { setItems(it => (it || []).map((x, i, a) => i === a.length - 1 && x.kind === 'assistant' ? { ...x, incomplete: true } : x)); setError(errorText(t, new ApiError(0, data.code || '', data.error || ''))) }
       })
       setItems(it => closeLast(it || []))
     } catch (e) {
       // Reload from the server: it knows whether the message was stored
       // (a refused message, e.g. over the daily limit, is not).
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorText(t, e))
       load()
     } finally { setSending(false) }
   }
 
   async function newConversation() {
     if (sending) return
-    try { await api('/chat/conversations', { method: 'POST' }); setItems([]); setError('') } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    try { await api('/chat/conversations', { method: 'POST' }); setItems([]); setError('') } catch (e) { setError(errorText(t, e)) }
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -159,24 +155,24 @@ export default function Chat({ subscribedURLs, onSubscribe }: { subscribedURLs: 
   const last = items?.[items.length - 1]
   const waiting = sending && !(last?.kind === 'assistant' && last.open)
   return <>
-    <button className={`gugu-button ${open ? 'hidden' : ''}`} onClick={() => setOpen(true)} title="和咕咕聊聊，找值得订阅的博客" aria-label="打开咕咕"><Pigeon /></button>
+    <button className={`gugu-button ${open ? 'hidden' : ''}`} onClick={() => setOpen(true)} title={t.guguOpenTitle} aria-label={t.guguOpen}><Pigeon /></button>
     <aside className={`gugu-panel ${open ? 'open' : ''}`} aria-hidden={!open}>
       <header className="gugu-head">
         <Pigeon size={40} />
-        <div><strong>咕咕</strong><small>帮你找值得订阅的独立博客</small></div>
-        <button onClick={newConversation} disabled={sending} title="清空对话，从头开始">新对话</button>
-        <button className="gugu-close" onClick={() => setOpen(false)} aria-label="关闭">×</button>
+        <div><strong>{t.guguName}</strong><small>{t.guguTagline}</small></div>
+        <button onClick={newConversation} disabled={sending} title={t.newChatTitle}>{t.newChat}</button>
+        <button className="gugu-close" onClick={() => setOpen(false)} aria-label={t.close}>×</button>
       </header>
       <div className="gugu-body" ref={bodyRef}>
         {items?.length === 0 && <div className="gugu-empty">
           <Pigeon size={72} />
-          <p>咕！我是咕咕，一只送信的鸽子。<br />想读点什么？告诉我你的兴趣，我去博客池里帮你找。</p>
-          <div className="gugu-suggest">{suggestions.map(s => <button key={s} onClick={() => send(s)}>{s}</button>)}</div>
+          <p>{t.guguHello}<br />{t.guguAsk}</p>
+          <div className="gugu-suggest">{t.suggestions.map(s => <button key={s} onClick={() => send(s)}>{s}</button>)}</div>
         </div>}
         {items?.map((x, i) => {
           if (x.kind === 'user') return <div key={x.id ?? `u${i}`} className="bubble user">{x.text}</div>
           if (x.kind === 'assistant') return <div key={x.id ?? `a${i}`} className={`bubble gugu ${x.incomplete ? 'incomplete' : ''}`}>
-            <Markdown text={x.text || ''} />{x.incomplete && <small className="gugu-cut">（回复中断了）</small>}</div>
+            <Markdown text={x.text || ''} />{x.incomplete && <small className="gugu-cut">{t.replyCut}</small>}</div>
           const c = x.card!
           const done = c.subscribed || subscribedURLs.has(c.feed_url)
           let host = ''
@@ -184,15 +180,15 @@ export default function Chat({ subscribedURLs, onSubscribe }: { subscribedURLs: 
           return <div key={x.id ?? `c${i}`} className="gugu-card">
             <div className="gugu-card-top"><strong>{c.title || host}</strong>{host && <a href={c.site_url || c.feed_url} target="_blank" rel="noopener noreferrer">{host} ↗</a>}</div>
             {c.reason && <p>{c.reason}</p>}
-            {done ? <span className="gugu-subscribed">已订阅 ✓</span> : <button className="primary" onClick={() => onSubscribe(c.feed_url)}>订阅</button>}
+            {done ? <span className="gugu-subscribed">{t.subscribedCheck}</span> : <button className="primary" onClick={() => onSubscribe(c.feed_url)}>{t.subscribe}</button>}
           </div>
         })}
         {waiting && <div className="bubble gugu typing"><span /><span /><span /></div>}
       </div>
-      {error && <div className="gugu-error">{error}<button onClick={() => setError('')} aria-label="关闭提示">×</button></div>}
+      {error && <div className="gugu-error">{error}<button onClick={() => setError('')} aria-label={t.close}>×</button></div>}
       <form className="gugu-input" onSubmit={e => { e.preventDefault(); send(input) }}>
-        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKeyDown} placeholder="想读什么？（Enter 发送，Shift+Enter 换行）" rows={2} maxLength={1000} disabled={sending} />
-        <button className="primary" disabled={sending || !input.trim()}>发送</button>
+        <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={onKeyDown} placeholder={t.chatPlaceholder} rows={2} maxLength={1000} disabled={sending} />
+        <button className="primary" disabled={sending || !input.trim()}>{t.send}</button>
       </form>
     </aside>
   </>

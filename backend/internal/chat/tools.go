@@ -116,7 +116,7 @@ func NewTools(userID uint64, subs Subscriptions, searcher Searcher) []Tool {
 			Def: llm.ToolDef{
 				Name:        toolPropose,
 				Description: "向用户推荐一个博客。系统会真实访问这个地址，确认博客存在、有 RSS，通过后在页面上显示一张带订阅按钮的卡片。推荐任何博客都必须调用这个工具；没有通过验证的博客不要再提。",
-				Parameters:  json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"博客首页或 RSS 地址"},"reason":{"type":"string","description":"一句话说明为什么推荐，会显示在卡片上"}},"required":["url","reason"]}`),
+				Parameters:  json.RawMessage(`{"type":"object","properties":{"url":{"type":"string","description":"博客首页或 RSS 地址"},"reason":{"type":"string","description":"一句话说明为什么推荐，会显示在卡片上。用和这次回答相同的语言写（用户用英文问，就写英文）"}},"required":["url","reason"]}`),
 			},
 			Run: func(ctx context.Context, args json.RawMessage) (string, error) {
 				var a struct{ URL, Reason string }

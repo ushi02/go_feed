@@ -54,24 +54,24 @@ func (h *Handler) ImportOPML(c *gin.Context) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 2<<20)
 	f, _, err := c.Request.FormFile("file")
 	if err != nil {
-		httpx.Fail(c, 400, "OPML file is required (max 2 MiB)")
+		httpx.FailCode(c, 400, "invalid_opml", "OPML file is required (max 2 MiB)")
 		return
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
 	if err != nil || len(data) > 1<<20 {
-		httpx.Fail(c, 400, "OPML exceeds 1 MiB")
+		httpx.FailCode(c, 400, "invalid_opml", "OPML exceeds 1 MiB")
 		return
 	}
 	var doc opml
 	if xml.Unmarshal(data, &doc) != nil || doc.XMLName.Local != "opml" {
-		httpx.Fail(c, 400, "invalid OPML")
+		httpx.FailCode(c, 400, "invalid_opml", "invalid OPML")
 		return
 	}
 	var items []ImportItem
 	flatten(doc.Body.Outlines, "", &items)
 	if len(items) > 500 {
-		httpx.Fail(c, 400, "OPML contains more than 500 feeds")
+		httpx.FailCode(c, 400, "invalid_opml", "OPML contains more than 500 feeds")
 		return
 	}
 	added, skipped, err := h.svc.Import(c.Request.Context(), httpx.UserID(c), items)

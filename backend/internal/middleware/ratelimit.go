@@ -21,7 +21,7 @@ func NewLimiter() *Limiter {
 func (l *Limiter) Middleware(name string, max int64, period time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !l.Allow("auth:"+name+":"+c.ClientIP(), max, period) {
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts; try again later"})
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "too many attempts; try again later", "code": "too_many_attempts"})
 			return
 		}
 		c.Next()

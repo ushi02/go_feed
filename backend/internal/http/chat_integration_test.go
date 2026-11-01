@@ -183,13 +183,19 @@ func TestChatSavesPartialReplyWhenPageCloses(t *testing.T) {
 func TestChatErrors(t *testing.T) {
 	skipShort(t)
 	off := newChatClient(t, "chat-off", nil)
-	off.do("POST", "/api/chat/messages", map[string]string{"text": "你好"}, 503, nil)
+	if got := off.errCode("POST", "/api/chat/messages", map[string]string{"text": "你好"}, 503); got != "chat_unavailable" {
+		t.Errorf("not configured: code %q", got)
+	}
 
 	on := newChatClient(t, "chat-on", &llm.Fake{})
-	on.do("POST", "/api/chat/messages", map[string]string{"text": "   "}, 400, nil)
+	if got := on.errCode("POST", "/api/chat/messages", map[string]string{"text": "   "}, 400); got != "message_invalid" {
+		t.Errorf("empty message: code %q", got)
+	}
 	on.do("POST", "/api/chat/messages", map[string]string{"text": strings.Repeat("长", 1001)}, 400, nil)
 	// The model failing before any text: a JSON error, and the question is kept.
-	on.do("POST", "/api/chat/messages", map[string]string{"text": "你好"}, 502, nil)
+	if got := on.errCode("POST", "/api/chat/messages", map[string]string{"text": "你好"}, 502); got != "chat_upstream" {
+		t.Errorf("model failed: code %q", got)
+	}
 	if items := on.chatItems(); len(items) != 1 || items[0].Text != "你好" {
 		t.Fatalf("items: %+v", items)
 	}
@@ -217,7 +223,9 @@ func TestChatDailyLimit(t *testing.T) {
 	insert(49, "1 HOUR")
 
 	c.sendChat("第 50 条") // still allowed
-	c.do("POST", "/api/chat/messages", map[string]string{"text": "第 51 条"}, 429, nil)
+	if got := c.errCode("POST", "/api/chat/messages", map[string]string{"text": "第 51 条"}, 429); got != "chat_quota" {
+		t.Errorf("code %q, want chat_quota", got)
+	}
 	var stored int64
 	database.Raw("SELECT COUNT(*) FROM messages WHERE user_id = ? AND content = '第 51 条'", userID).Scan(&stored)
 	if stored != 0 {

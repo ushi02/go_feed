@@ -28,10 +28,12 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 	user, token, err := h.svc.Register(c.Request.Context(), req.Username, req.Password)
 	switch {
-	case errors.Is(err, ErrInvalidLength), errors.Is(err, ErrInvalidUsername):
-		httpx.Fail(c, 400, err.Error())
+	case errors.Is(err, ErrInvalidLength):
+		httpx.FailCode(c, 400, "invalid_length", err.Error())
+	case errors.Is(err, ErrInvalidUsername):
+		httpx.FailCode(c, 400, "invalid_username", err.Error())
 	case errors.Is(err, ErrUsernameTaken):
-		httpx.Fail(c, 409, err.Error())
+		httpx.FailCode(c, 409, "username_taken", err.Error())
 	case err != nil:
 		httpx.Fail(c, 500, "registration failed")
 	default:
@@ -49,7 +51,7 @@ func (h *Handler) Login(c *gin.Context) {
 	user, token, err := h.svc.Login(c.Request.Context(), req.Username, req.Password)
 	switch {
 	case errors.Is(err, ErrInvalidCredentials):
-		httpx.Fail(c, 401, err.Error())
+		httpx.FailCode(c, 401, "invalid_credentials", err.Error())
 	case err != nil:
 		httpx.Fail(c, 500, "session creation failed")
 	default:
