@@ -86,7 +86,7 @@ const zh = {
 
   guguName: '咕咕',
   guguTagline: '帮你找值得订阅的独立博客',
-  guguOpen: '打开咕咕',
+  askGugu: '问咕咕',
   guguOpenTitle: '和咕咕聊聊，找值得订阅的博客',
   newChat: '新对话',
   newChatTitle: '清空对话，从头开始',
@@ -206,7 +206,7 @@ const en: Messages = {
 
   guguName: 'Gugu',
   guguTagline: 'Finds Chinese indie blogs worth following',
-  guguOpen: 'Open Gugu',
+  askGugu: 'Ask Gugu',
   guguOpenTitle: 'Chat with Gugu to find blogs worth following',
   newChat: 'New chat',
   newChatTitle: 'Clear the conversation and start over',

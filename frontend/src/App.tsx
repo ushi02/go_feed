@@ -66,6 +66,7 @@ export default function App() {
   const [addFolderID, setAddFolderID] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
   const [showManage, setShowManage] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState<{ q: string; results: SearchResult[] } | null>(null)
 
@@ -239,7 +240,8 @@ export default function App() {
       <form className="search-form" onSubmit={runSearch}><input type="search" placeholder={t.searchPlaceholder} value={searchInput} onChange={e => setSearchInput(e.target.value)} required /></form>
       <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>{t.allEntries}</button>
         <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>{t.unreadEntries}{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>
-        <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>{t.starredEntries}</button></div>
+        <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>{t.starredEntries}</button>
+        <button onClick={() => setChatOpen(true)}>{t.askGugu}</button></div>
       <div className="nav-heading heading-row"><span>{t.folders}</span><button onClick={() => setShowManage(true)}>{t.manage}</button></div>
       <div className="nav-group">{folders.map(f => <button key={f.id} className={folderID === f.id ? 'active' : ''} onClick={() => { setFolderID(f.id); setSubID(null) }}>{f.name}</button>)}</div>
       <form className="mini-form" onSubmit={createFolder}><input placeholder={t.newFolder} value={newFolder} onChange={e => setNewFolder(e.target.value)} /><button title={t.addFolder}>＋</button></form>
@@ -270,7 +272,7 @@ export default function App() {
     {search && <Sheet onClose={() => setSearch(null)}><span className="eyebrow">SEARCH</span><h1>{t.searchTitle(search.q)}</h1><p className="search-hint">{t.searchHint(search.results.length)}</p>
       {search.results.map(r => <article key={r.entry_id} className="search-result"><span className="entry-meta">{r.feed_title || r.feed_url} · {new Date(r.sort_at).toLocaleDateString(t.locale)}</span><h2>{r.url ? <a href={r.url} target="_blank" rel="noopener noreferrer">{r.title || t.untitled}</a> : r.title || t.untitled}</h2>{r.summary && <p>{r.summary.length > 140 ? r.summary.slice(0, 140) + '…' : r.summary}</p>}{r.subscribed ? <span className="search-subscribed">{t.subscribed}</span> : <button className="outline" onClick={() => subscribeFromSearch(r)}>{t.subscribeBlog}</button>}</article>)}
       {search.results.length === 0 && <div className="empty">{t.noResults}</div>}</Sheet>}
-    <Chat t={t} subscribedURLs={subscribedURLs} onSubscribe={addSubscription} />
+    <Chat t={t} open={chatOpen} setOpen={setChatOpen} subscribedURLs={subscribedURLs} onSubscribe={addSubscription} />
     {showManage && <Sheet className="manage-panel" onClose={() => setShowManage(false)}><span className="eyebrow">ORGANIZE</span><h1>{t.manageTitle}</h1><h2>{t.folders}</h2>{folders.map(f => <div className="manage-row" key={f.id}><span>{f.name}</span><button onClick={() => renameFolder(f)}>{t.rename}</button><button onClick={() => deleteFolder(f)}>{t.delete}</button></div>)}<h2>{t.feeds}</h2>{subs.map(s => <div className="manage-row" key={s.id}><span>{s.feed.title || s.feed.url}</span><select value={s.folder_id ?? ''} onChange={e => moveSubscription(s, e.target.value ? Number(e.target.value) : null)}><option value="">{t.uncategorized}</option>{folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select><button onClick={() => removeSubscription(s.id)}>{t.unsubscribe}</button></div>)}</Sheet>}
   </div>
 }

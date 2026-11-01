@@ -86,25 +86,13 @@ function Markdown({ text }: { text: string }) {
   return <>{blocks}</>
 }
 
-// Pigeon is a placeholder until the 3D model is chosen.
+// Gugu is the hand-drawn pigeon that is also the site icon.
 export function Pigeon({ size = 56 }: { size?: number }) {
-  return <svg className="pigeon" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <defs><linearGradient id="gugu-neck" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#5fb59a" /><stop offset="1" stopColor="#8a6fb3" /></linearGradient></defs>
-    <path d="M50 40 L61 34 L59 44 Z" fill="#8d99a2" />
-    <ellipse cx="34" cy="40" rx="20" ry="15" fill="#c3ccd1" />
-    <ellipse cx="39" cy="41" rx="11" ry="8" fill="#a3aeb5" />
-    <path d="M33 41 q6 3 13 0 M34 45 q6 3 12 0" stroke="#75828b" strokeWidth="1.6" fill="none" strokeLinecap="round" />
-    <ellipse cx="24" cy="31" rx="10" ry="9" fill="url(#gugu-neck)" />
-    <circle cx="22" cy="22" r="10" fill="#97a3ab" />
-    <circle cx="19" cy="20" r="2.6" fill="#1d2a30" /><circle cx="18.2" cy="19.2" r=".9" fill="#fff" />
-    <circle cx="24.5" cy="25" r="2.2" fill="#f2a7a7" opacity=".75" />
-    <path d="M12.5 21.5 L6.5 24 L12.5 25.5 Z" fill="#f0a35e" />
-    <path d="M29 54 v4 M27 58 h4 M37 54 v4 M35 58 h4" stroke="#e98a6f" strokeWidth="1.8" strokeLinecap="round" />
-  </svg>
+  return <img className="pigeon" src="/icon-192.png" width={size} height={size} alt="" />
 }
 
-export default function Chat({ t, subscribedURLs, onSubscribe }: { t: Messages; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
-  const [open, setOpen] = useState(false)
+// open lives in App, so the sidebar can open the chat too.
+export default function Chat({ t, open, setOpen, subscribedURLs, onSubscribe }: { t: Messages; open: boolean; setOpen: (open: boolean) => void; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
   const [items, setItems] = useState<Item[] | null>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -155,7 +143,7 @@ export default function Chat({ t, subscribedURLs, onSubscribe }: { t: Messages; 
   const last = items?.[items.length - 1]
   const waiting = sending && !(last?.kind === 'assistant' && last.open)
   return <>
-    <button className={`gugu-button ${open ? 'hidden' : ''}`} onClick={() => setOpen(true)} title={t.guguOpenTitle} aria-label={t.guguOpen}><Pigeon /></button>
+    <button className={`gugu-button ${open ? 'hidden' : ''}`} onClick={() => setOpen(true)} title={t.guguOpenTitle}><Pigeon size={30} /><span>{t.askGugu}</span></button>
     <aside className={`gugu-panel ${open ? 'open' : ''}`} aria-hidden={!open}>
       <header className="gugu-head">
         <Pigeon size={40} />
