@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ushi02/go_feed/backend/internal/httpx"
@@ -14,21 +15,45 @@ type Handler struct{ svc *Service }
 
 func NewHandler(svc *Service) *Handler { return &Handler{svc: svc} }
 
+// Items returns one conversation: ?conversation_id=N, or the newest without it.
 func (h *Handler) Items(c *gin.Context) {
-	items, err := h.svc.Items(c.Request.Context(), httpx.UserID(c))
+	var id uint64
+	if raw := c.Query("conversation_id"); raw != "" {
+		n, err := strconv.ParseUint(raw, 10, 64)
+		if err != nil || n == 0 {
+			httpx.Fail(c, 400, "invalid conversation_id")
+			return
+		}
+		id = n
+	}
+	convID, items, err := h.svc.Items(c.Request.Context(), httpx.UserID(c), id)
+	if errors.Is(err, ErrNotFound) {
+		httpx.Fail(c, 404, "conversation not found")
+		return
+	}
 	if err != nil {
 		httpx.Fail(c, 500, "database error")
 		return
 	}
-	c.JSON(200, gin.H{"items": items})
+	c.JSON(200, gin.H{"conversation_id": convID, "items": items})
 }
 
-func (h *Handler) NewConversation(c *gin.Context) {
-	if err := h.svc.NewConversation(c.Request.Context(), httpx.UserID(c)); err != nil {
+func (h *Handler) Conversations(c *gin.Context) {
+	list, err := h.svc.Conversations(c.Request.Context(), httpx.UserID(c))
+	if err != nil {
 		httpx.Fail(c, 500, "database error")
 		return
 	}
-	c.Status(204)
+	c.JSON(200, gin.H{"conversations": list})
+}
+
+func (h *Handler) NewConversation(c *gin.Context) {
+	id, err := h.svc.NewConversation(c.Request.Context(), httpx.UserID(c))
+	if err != nil {
+		httpx.Fail(c, 500, "database error")
+		return
+	}
+	c.JSON(201, gin.H{"id": id})
 }
 
 // Send answers with server-sent events: "text" pieces, a "break" after each
@@ -39,6 +64,8 @@ func (h *Handler) Send(c *gin.Context) {
 	var req struct {
 		Text string `json:"text"`
 		Lang string `json:"lang"` // the page language, which Gugu answers in
+		// The conversation the page shows; 0 or missing means the newest.
+		ConversationID uint64 `json:"conversation_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, 400, "invalid request")
@@ -63,7 +90,7 @@ func (h *Handler) Send(c *gin.Context) {
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
 		c.Writer.Flush()
 	}
-	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, lang, Events{
+	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.ConversationID, req.Text, lang, Events{
 		Text:  func(piece string) { send("text", gin.H{"text": piece}) },
 		Break: func() { send("break", gin.H{}) },
 		Card:  func(card Card) { send("card", card) },
@@ -73,6 +100,8 @@ func (h *Handler) Send(c *gin.Context) {
 		send("done", gin.H{})
 	case c.Request.Context().Err() != nil:
 		// The page was closed; there is nobody to tell.
+	case errors.Is(err, ErrNotFound):
+		httpx.Fail(c, 404, "conversation not found")
 	case errors.Is(err, ErrInvalidMessage):
 		httpx.FailCode(c, 400, "message_invalid", "message must be 1-1000 characters")
 	case errors.Is(err, ErrDailyLimit):
