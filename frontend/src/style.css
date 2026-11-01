@@ -410,8 +410,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
 .auth-card .error { padding: 10px 12px; border-radius: var(--radius-sm); margin-top: 14px; }
 .text-button { border: 0; background: none; color: var(--accent); padding: 16px 0 0; }
 .top-tools { display: flex; align-items: center; gap: 6px; }
-.github-link { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--text-2); }
-.github-link:hover { color: var(--text); background: var(--fill); }
+/* .top-tools raises the specificity above ".side-bottom a", whose padding and
+   square corners would otherwise push the icon off its circle. */
+.top-tools .github-link { display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border-radius: 50%; color: var(--text-2); }
+.top-tools .github-link:hover { color: var(--text); background: var(--fill); }
 .lang-toggle { border: 0; background: var(--fill); color: var(--text-2); border-radius: 980px; padding: 4px 10px; font-size: 12px; }
 .lang-toggle:hover { background: var(--fill-hover); }
 .side-tools { margin: 4px 10px 0; }
