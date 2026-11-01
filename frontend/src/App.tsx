@@ -218,7 +218,7 @@ export default function App() {
 
   if (!ready) return <div className="loading">{t.loading}</div>
   if (!user) return <main className="auth-page"><section className="auth-card">
-    <div className="auth-top"><span className="eyebrow">GO FEED READER</span>{langButton}</div><h1>{t.authHeadline}</h1>
+    <div className="auth-top"><span className="eyebrow">GUGU READER</span>{langButton}</div><h1>{t.authHeadline}</h1>
     <p>{t.authIntro}</p>
     <form onSubmit={authenticate}>
       <label>{t.username}<input value={username} onChange={e => setUsername(e.target.value)} minLength={3} required /></label>
@@ -235,7 +235,7 @@ export default function App() {
   const totalUnread = Object.values(unread).reduce((a, b) => a + b, 0)
   return <div className="shell">
     <aside className="sidebar">
-      <div className="brand"><span className="brand-mark">◉</span><div><strong>Go Feed</strong><small>{t.tagline}</small></div></div>
+      <div className="brand"><img className="brand-mark" src="/icon-192.png" alt="" /><div><strong>Gugu Reader</strong><small>{t.tagline}</small></div></div>
       <form className="search-form" onSubmit={runSearch}><input type="search" placeholder={t.searchPlaceholder} value={searchInput} onChange={e => setSearchInput(e.target.value)} required /></form>
       <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>{t.allEntries}</button>
         <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>{t.unreadEntries}{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>

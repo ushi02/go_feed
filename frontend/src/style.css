@@ -150,7 +150,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 0 10px 6px; }
-.brand-mark { font-size: 26px; color: var(--accent); line-height: 1; }
+.brand-mark { width: 34px; height: 34px; flex-shrink: 0; }
 .brand strong { display: block; font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
 .brand small { color: var(--text-2); font-size: 12px; }
 .nav-heading {
