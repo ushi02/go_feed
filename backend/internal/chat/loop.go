@@ -15,9 +15,14 @@ type Tool struct {
 	Run func(ctx context.Context, args json.RawMessage) (string, error)
 }
 
-// maxToolRounds caps how many times the model may ask for tools in one turn,
-// so a confused model cannot loop (and spend tokens) forever.
+// maxToolRounds caps how many times the model is called in one turn, so a
+// confused model cannot loop (and spend tokens) forever. The last call offers
+// no tools, so the model has to answer with what it found.
 const maxToolRounds = 5
+
+// lastRoundNote is added (not stored) to the last call, so the model knows
+// why the tools are gone.
+const lastRoundNote = "工具调用次数已经用完。根据已经拿到的结果，直接用文字回答用户。"
 
 var ErrTooManyToolRounds = errors.New("model kept calling tools")
 
@@ -37,12 +42,15 @@ type TextFilter interface {
 }
 
 // RunTools sends the conversation to the model and runs the tools it asks for,
-// feeding each result back, until the model answers in plain text. It returns
+// feeding each result back, until the model answers in plain text, at the
+// latest on the last round, which offers no tools. It returns
 // every message produced on the way (tool calls, tool results, the answer),
 // also on error, so the caller can store them exactly as they were. If the
 // model's stream breaks, the text received so far is the last message.
-// filter may be nil.
-func RunTools(ctx context.Context, client llm.Client, history []llm.Message, tools []Tool, filter TextFilter) ([]llm.Message, error) {
+// reminder, if not empty, ends every request (it is never returned, so never
+// stored): an instruction placed after the latest tool results is followed
+// more reliably than one at the start of a long conversation. filter may be nil.
+func RunTools(ctx context.Context, client llm.Client, history []llm.Message, tools []Tool, reminder string, filter TextFilter) ([]llm.Message, error) {
 	byName := make(map[string]Tool, len(tools))
 	defs := make([]llm.ToolDef, len(tools))
 	for i, t := range tools {
@@ -59,8 +67,21 @@ func RunTools(ctx context.Context, client llm.Client, history []llm.Message, too
 	if filter != nil {
 		onText = filter.Write
 	}
-	for range maxToolRounds {
-		reply, err := client.Chat(ctx, llm.Request{Messages: messages, Tools: defs, MaxTokens: maxReplyTokens}, onText)
+	for round := range maxToolRounds {
+		req := llm.Request{Messages: messages, Tools: defs, MaxTokens: maxReplyTokens}
+		var notes []llm.Message
+		if reminder != "" {
+			notes = append(notes, llm.Message{Role: llm.RoleSystem, Content: reminder})
+		}
+		last := round == maxToolRounds-1
+		if last {
+			notes = append(notes, llm.Message{Role: llm.RoleSystem, Content: lastRoundNote})
+			req.Tools = nil
+		}
+		// The full slice expression makes append copy, so the notes never
+		// end up in messages.
+		req.Messages = append(messages[:len(messages):len(messages)], notes...)
+		reply, err := client.Chat(ctx, req, onText)
 		if filter != nil {
 			reply.Content = filter.Close()
 		}
@@ -70,10 +91,20 @@ func RunTools(ctx context.Context, client llm.Client, history []llm.Message, too
 			}
 			return produced, err
 		}
-		add(reply)
 		if len(reply.ToolCalls) == 0 {
+			add(reply)
 			return produced, nil
 		}
+		if last {
+			// Tool calls nobody answers must not be stored: the model API
+			// rejects a history with an unanswered tool call. Text the user
+			// already saw is kept.
+			if reply.Content != "" {
+				add(llm.Message{Role: llm.RoleAssistant, Content: reply.Content})
+			}
+			break
+		}
+		add(reply)
 		for _, c := range reply.ToolCalls {
 			add(llm.Message{Role: llm.RoleTool, ToolCallID: c.ID, Content: runTool(ctx, byName, c)})
 		}

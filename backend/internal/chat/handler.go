@@ -38,9 +38,16 @@ func (h *Handler) NewConversation(c *gin.Context) {
 func (h *Handler) Send(c *gin.Context) {
 	var req struct {
 		Text string `json:"text"`
+		Lang string `json:"lang"` // the page language, which Gugu answers in
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		httpx.Fail(c, 400, "invalid request")
+		return
+	}
+	// The page only sends its own languages, so this needs no error code.
+	lang, ok := ParseLang(req.Lang)
+	if !ok {
+		httpx.Fail(c, 400, "lang must be zh, en or ja")
 		return
 	}
 	started := false
@@ -56,7 +63,7 @@ func (h *Handler) Send(c *gin.Context) {
 		fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, b)
 		c.Writer.Flush()
 	}
-	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, Events{
+	err := h.svc.Send(c.Request.Context(), httpx.UserID(c), req.Text, lang, Events{
 		Text:  func(piece string) { send("text", gin.H{"text": piece}) },
 		Break: func() { send("break", gin.H{}) },
 		Card:  func(card Card) { send("card", card) },

@@ -192,6 +192,7 @@ func TestChatErrors(t *testing.T) {
 		t.Errorf("empty message: code %q", got)
 	}
 	on.do("POST", "/api/chat/messages", map[string]string{"text": strings.Repeat("长", 1001)}, 400, nil)
+	on.do("POST", "/api/chat/messages", map[string]string{"text": "你好", "lang": "fr"}, 400, nil)
 	// The model failing before any text: a JSON error, and the question is kept.
 	if got := on.errCode("POST", "/api/chat/messages", map[string]string{"text": "你好"}, 502); got != "chat_upstream" {
 		t.Errorf("model failed: code %q", got)

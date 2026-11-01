@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, apiError, errorText, type Messages } from './messages'
+import { ApiError, apiError, errorText, type Lang, type Messages } from './messages'
 
 type Card = { feed_url: string; title: string; site_url: string; subscribed: boolean; reason: string }
 // open: an answer part still receiving text; a "break" event closes it.
@@ -92,7 +92,8 @@ export function Pigeon({ size = 56 }: { size?: number }) {
 }
 
 // open lives in App, so the sidebar can open the chat too.
-export default function Chat({ t, open, setOpen, subscribedURLs, onSubscribe }: { t: Messages; open: boolean; setOpen: (open: boolean) => void; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
+// Gugu answers in lang, the language picked on the page.
+export default function Chat({ t, lang, open, setOpen, subscribedURLs, onSubscribe }: { t: Messages; lang: Lang; open: boolean; setOpen: (open: boolean) => void; subscribedURLs: Set<string>; onSubscribe: (url: string) => Promise<boolean> }) {
   const [items, setItems] = useState<Item[] | null>(null)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -109,7 +110,7 @@ export default function Chat({ t, open, setOpen, subscribedURLs, onSubscribe }: 
     setInput(''); setError(''); setSending(true)
     setItems(it => [...(it || []), { kind: 'user', text }])
     try {
-      const res = await api('/chat/messages', { method: 'POST', body: JSON.stringify({ text }) })
+      const res = await api('/chat/messages', { method: 'POST', body: JSON.stringify({ text, lang }) })
       await readEvents(res.body!, (event, data) => {
         if (event === 'text') setItems(it => appendText(it || [], data.text))
         else if (event === 'break') setItems(it => closeLast(it || []))
