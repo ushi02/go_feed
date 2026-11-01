@@ -250,7 +250,7 @@ export default function App() {
       <div className="nav-group"><button className={folderID === null && subID === null ? 'active' : ''} onClick={() => { setFilter('all'); setFolderID(null); setSubID(null) }}>{t.allEntries}</button>
         <button className={filter === 'unread' ? 'active subtle' : ''} onClick={() => { setFilter('unread'); setFolderID(null); setSubID(null) }}>{t.unreadEntries}{totalUnread > 0 && <span className="count">{totalUnread}</span>}</button>
         <button className={filter === 'starred' ? 'active subtle' : ''} onClick={() => { setFilter('starred'); setFolderID(null); setSubID(null) }}>{t.starredEntries}</button>
-        <button onClick={() => setChatOpen(true)}>{t.askGugu}</button></div>
+        <button className={chatOpen ? 'active' : ''} aria-pressed={chatOpen} onClick={() => setChatOpen(o => !o)}>{t.askGugu}</button></div>
       <div className="nav-heading heading-row"><span>{t.folders}</span><button onClick={() => setShowManage(true)}>{t.manage}</button></div>
       <div className="nav-group">{folders.map(f => <button key={f.id} className={folderID === f.id ? 'active' : ''} onClick={() => { setFolderID(f.id); setSubID(null) }}>{f.name}</button>)}</div>
       <form className="mini-form" onSubmit={createFolder}><input placeholder={t.newFolder} value={newFolder} onChange={e => setNewFolder(e.target.value)} /><button title={t.addFolder}>＋</button></form>
